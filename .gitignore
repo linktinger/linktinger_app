@@ -1,0 +1,32 @@
+﻿# Flutter/Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.melos_tool/
+.pub-cache/
+.pub/
+build/
+coverage/
+android/local.properties
+
+# iOS
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.podspec
+macos/Flutter/Flutter-Debug.xcconfig
+macos/Flutter/Flutter-Release.xcconfig
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# VSCode/IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# (اختياري) تجاهل ملفات فيربيز إن أردت إبقاءها خارج Git:
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist

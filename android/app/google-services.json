@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "122518773108",
+    "project_id": "linktinger-3f7dc",
+    "storage_bucket": "linktinger-3f7dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:122518773108:android:5204dd2df30e15439d2021",
+        "android_client_info": {
+          "package_name": "com.example.linktinger_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2cqOVmuMM3TyjsyNY5j0swlDOtJrcsus"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:122518773108:android:9989594a231a673c9d2021",
+        "android_client_info": {
+          "package_name": "com.linktinger.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2cqOVmuMM3TyjsyNY5j0swlDOtJrcsus"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
