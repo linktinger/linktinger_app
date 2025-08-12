@@ -1,22 +1,26 @@
 ﻿platform :ios, '14.0'
 source 'https://cdn.cocoapods.org/'
 
-# نفعّل frameworks لكن كرابط ساكن (أنسب مع Flutter)
+# تفعيل frameworks مع الربط الساكن (أفضل مع Flutter لتقليل مشاكل linking)
 use_frameworks! :linkage => :static
+use_modular_headers!
 
+# إعدادات Flutter
 flutter_root = ENV['FLUTTER_ROOT']
 require File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper'))
 
 flutter_ios_podfile_setup
 
 target 'Runner' do
+  # تثبيت جميع الـ pods الخاصة بـ Flutter
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # FirebaseCoreInternal يحتاج GoogleUtilities بموديول هيدرز عند الربط الساكن
+  # إصلاحات FirebaseCoreInternal و sqflite_darwin مع الربط الساكن
   pod 'GoogleUtilities', :modular_headers => true
 end
 
 post_install do |installer|
+  # ضبط إعدادات جميع الـ targets
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
@@ -25,7 +29,7 @@ post_install do |installer|
     end
   end
 
-  # تأكد أن بود Flutter يعرّف موديول (يُسهل الاستيراد في البلغ-إنز)
+  # التأكد أن بود Flutter يعرّف موديول (DEFINES_MODULE)
   installer.pods_project.targets.each do |t|
     if t.name == 'Flutter'
       t.build_configurations.each do |config|
