@@ -1,9 +1,8 @@
 ﻿platform :ios, '14.0'
-source 'https://cdn.cocoapods.org/'
-
 use_frameworks! :linkage => :static
 use_modular_headers!
 
+# Flutter helper
 flutter_root = ENV['FLUTTER_ROOT']
 require File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper'))
 
@@ -12,7 +11,7 @@ flutter_ios_podfile_setup
 target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
-  # إصلاح مشاكل GoogleUtilities و Firebase مع static linking
+  # إصلاح لمشاكل FirebaseCoreInternal مع use_frameworks
   pod 'GoogleUtilities', :modular_headers => true
 end
 
@@ -25,7 +24,7 @@ post_install do |installer|
     end
   end
 
-  # أهم جزء: تأكيد أن Flutter يعرف كـ Module
+  # إصلاح مشكلة Flutter/Flutter.h مفقود
   installer.pods_project.targets.each do |t|
     if t.name == 'Flutter'
       t.build_configurations.each do |config|
