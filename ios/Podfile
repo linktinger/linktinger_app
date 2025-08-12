@@ -1,7 +1,7 @@
 ﻿platform :ios, '14.0'
 
 use_frameworks! :linkage => :static
-use_modular_headers!
+# use_modular_headers!   #
 
 # Flutter helper (يضيف إعدادات Flutter للـ Pods)
 flutter_root = ENV['FLUTTER_ROOT']
