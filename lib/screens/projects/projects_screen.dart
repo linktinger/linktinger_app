@@ -56,7 +56,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
-          'المشاريع',
+          'Projects',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 20,
@@ -68,7 +68,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF142B63),
         onPressed: _goToCreateProject,
-        tooltip: 'إضافة مشروع جديد',
+        tooltip: 'Add new project',
         child: const Icon(Icons.add, color: Colors.white),
       ),
       body: isLoading
@@ -76,7 +76,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           : projects.isEmpty
           ? const Center(
               child: Text(
-                "لا توجد مشاريع بعد",
+                "No projects yet",
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
             )

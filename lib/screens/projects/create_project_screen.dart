@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../services/project_service.dart';
-import '../../services/auth_service.dart'; // ← تأكد أنك استوردت ملف AuthService
+import '../../services/auth_service.dart'; // Make sure AuthService is imported
 
 class CreateProjectScreen extends StatefulWidget {
   const CreateProjectScreen({super.key});
@@ -16,6 +16,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _skillsController = TextEditingController();
+
   File? _coverImage;
   bool isSubmitting = false;
 
@@ -32,7 +33,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   Future<void> _submitProject() async {
     if (!_formKey.currentState!.validate() || _coverImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❗ يرجى ملء كل الحقول وتحميل صورة")),
+        const SnackBar(
+          content: Text("❗ Please fill in all fields and upload a cover image"),
+        ),
       );
       return;
     }
@@ -43,9 +46,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       final userId = await AuthService.getUserId() ?? 0;
 
       if (userId == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("❌ لم يتم العثور على المستخدم")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("❌ User not found")));
         setState(() => isSubmitting = false);
         return;
       }
@@ -61,9 +64,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       if (!mounted) return;
 
       if (result['status'] == 'success') {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("✅ تم نشر المشروع بنجاح")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("✅ Project published successfully")),
+        );
         Navigator.pop(context, true);
       } else {
         ScaffoldMessenger.of(
@@ -73,7 +76,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text("⚠️ خطأ: ${e.toString()}")));
+      ).showSnackBar(SnackBar(content: Text("⚠️ Error: ${e.toString()}")));
     }
 
     setState(() => isSubmitting = false);
@@ -86,7 +89,10 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("إنشاء مشروع", style: TextStyle(color: Colors.white)),
+        title: const Text(
+          "Create Project",
+          style: TextStyle(color: Colors.white),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -101,7 +107,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                   color: Colors.white,
                 ),
               )
-            : const Text("نشر", style: TextStyle(color: Colors.white)),
+            : const Text("Publish", style: TextStyle(color: Colors.white)),
         icon: const Icon(Icons.check, color: Colors.white),
       ),
       body: SingleChildScrollView(
@@ -141,7 +147,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                 controller: _titleController,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  labelText: 'عنوان المشروع',
+                  labelText: 'Project Title',
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: Colors.white30),
@@ -151,7 +157,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                   ),
                 ),
                 validator: (value) =>
-                    value == null || value.isEmpty ? 'العنوان مطلوب' : null,
+                    value == null || value.isEmpty ? 'Title is required' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -159,7 +165,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                 style: const TextStyle(color: Colors.white),
                 maxLines: 5,
                 decoration: const InputDecoration(
-                  labelText: 'وصف المشروع',
+                  labelText: 'Project Description',
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: Colors.white30),
@@ -168,15 +174,16 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                     borderSide: BorderSide(color: Colors.blueAccent),
                   ),
                 ),
-                validator: (value) =>
-                    value == null || value.isEmpty ? 'الوصف مطلوب' : null,
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Description is required'
+                    : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _skillsController,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  labelText: 'المهارات (مفصولة بفواصل)',
+                  labelText: 'Skills (comma separated)',
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: Colors.white30),
@@ -185,8 +192,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                     borderSide: BorderSide(color: Colors.blueAccent),
                   ),
                 ),
-                validator: (value) =>
-                    value == null || value.isEmpty ? 'المهارات مطلوبة' : null,
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Skills are required'
+                    : null,
               ),
               const SizedBox(height: 80),
             ],

@@ -81,7 +81,9 @@ class _EditProjectScreenState extends State<EditProjectScreen> {
       Navigator.pop(context, true);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('حدث خطأ أثناء تحديث المشروع')),
+        const SnackBar(
+          content: Text('An error occurred while updating the project'),
+        ),
       );
     }
   }
@@ -92,7 +94,7 @@ class _EditProjectScreenState extends State<EditProjectScreen> {
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text(
-          'تعديل المشروع',
+          'Edit Project',
           style: TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.transparent,
@@ -105,14 +107,18 @@ class _EditProjectScreenState extends State<EditProjectScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              _buildTextField('عنوان المشروع', _titleController),
+              _buildTextField('Project Title', _titleController),
               const SizedBox(height: 16),
-              _buildTextField('الوصف', _descriptionController, maxLines: 4),
+              _buildTextField(
+                'Description',
+                _descriptionController,
+                maxLines: 4,
+              ),
               const SizedBox(height: 16),
-              _buildTextField('المهارات (مفصولة بفواصل)', _skillsController),
+              _buildTextField('Skills (comma separated)', _skillsController),
               const SizedBox(height: 16),
               const Text(
-                'صورة الغلاف',
+                'Cover Image',
                 style: TextStyle(color: Colors.white70),
               ),
               const SizedBox(height: 8),
@@ -153,7 +159,7 @@ class _EditProjectScreenState extends State<EditProjectScreen> {
                 child: isSubmitting
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text(
-                        'حفظ التعديلات',
+                        'Save Changes',
                         style: TextStyle(fontSize: 16),
                       ),
               ),
@@ -181,7 +187,7 @@ class _EditProjectScreenState extends State<EditProjectScreen> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
       ),
       validator: (value) =>
-          value == null || value.isEmpty ? 'هذا الحقل مطلوب' : null,
+          value == null || value.isEmpty ? 'This field is required' : null,
     );
   }
 }

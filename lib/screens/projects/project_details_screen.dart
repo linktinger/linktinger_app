@@ -15,19 +15,25 @@ class ProjectDetailsScreen extends StatelessWidget {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1F2937),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد الحذف', style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Confirm Deletion',
+          style: TextStyle(color: Colors.white),
+        ),
         content: const Text(
-          'هل تريد حذف هذا المشروع؟',
+          'Do you want to delete this project?',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('حذف', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -42,12 +48,14 @@ class ProjectDetailsScreen extends StatelessWidget {
         if (result['status'] == 'success') {
           Navigator.pop(context, true);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ تم حذف المشروع بنجاح')),
+            const SnackBar(content: Text('✅ Project deleted successfully')),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ ${result['message'] ?? 'فشل في حذف المشروع'}'),
+              content: Text(
+                '❌ ${result['message'] ?? 'Failed to delete project'}',
+              ),
             ),
           );
         }
@@ -61,7 +69,7 @@ class ProjectDetailsScreen extends StatelessWidget {
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text(
-          'تفاصيل المشروع',
+          'Project Details',
           style: TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.transparent,
@@ -73,7 +81,7 @@ class ProjectDetailsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ صورة الغلاف
+            // Cover Image
             ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 bottom: Radius.circular(24),
@@ -98,7 +106,7 @@ class ProjectDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // ✅ العنوان
+            // Title
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Text(
@@ -112,7 +120,7 @@ class ProjectDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
-            // ✅ الوصف
+            // Description
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Text(
@@ -126,7 +134,7 @@ class ProjectDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // ✅ المهارات
+            // Skills
             if (project.skills.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -151,7 +159,7 @@ class ProjectDetailsScreen extends StatelessWidget {
               ),
             const SizedBox(height: 28),
 
-            // ✅ الإحصائيات
+            // Stats
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Container(
@@ -211,7 +219,7 @@ class ProjectDetailsScreen extends StatelessWidget {
         ),
       ),
 
-      // ✅ أزرار تعديل وحذف
+      // Edit & Delete buttons
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: const BoxDecoration(
@@ -234,7 +242,7 @@ class ProjectDetailsScreen extends StatelessWidget {
                   }
                 },
                 icon: const Icon(Icons.edit),
-                label: const Text('تعديل'),
+                label: const Text('Edit'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -247,7 +255,7 @@ class ProjectDetailsScreen extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: () => _confirmDelete(context),
                 icon: const Icon(Icons.delete),
-                label: const Text('حذف'),
+                label: const Text('Delete'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   padding: const EdgeInsets.symmetric(vertical: 14),

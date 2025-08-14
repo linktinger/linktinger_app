@@ -31,23 +31,25 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   Future<void> _safeInit() async {
-    // اطلب الإذن أولاً
+    // Ask for camera permission first
     if (!await _ensureCameraPermission()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم رفض إذن الكاميرا. افتح الإعدادات للسماح.'),
+            content: Text(
+              'Camera permission denied. Please open Settings to allow.',
+            ),
           ),
         );
       }
       return;
     }
-    // ابدأ التهيئة
+    // Proceed with initialization
     await _initializeCamera(_currentLens);
   }
 
   Future<bool> _ensureCameraPermission() async {
-    // iOS/Android: اطلب إذن الكاميرا
+    // iOS/Android: request camera permission
     final st = await Permission.camera.request();
     if (st.isGranted) return true;
     if (st.isPermanentlyDenied) {
@@ -64,27 +66,26 @@ class _CameraScreenState extends State<CameraScreen>
       if (_cameras.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('لم يتم العثور على أي كاميرا على هذا الجهاز'),
-            ),
+            const SnackBar(content: Text('No camera found on this device')),
           );
         }
         return;
       }
 
-      // اختر الكاميرا بحسب الاتجاه المطلوب، أو أول كاميرا إن لم توجد مطابقة
+      // Pick camera by desired lens direction, or fall back to the first available
       final CameraDescription cam = _cameras.firstWhere(
         (c) => c.lensDirection == lens,
         orElse: () => _cameras.first,
       );
 
-      // أغلق القديم قبل إنشاء جديد
+      // Dispose old controller before creating a new one
       await _controller?.dispose();
 
       final ctrl = CameraController(
         cam,
-        ResolutionPreset.high, // high كافية للستوري وغالبًا أخف من max
-        enableAudio: false, // فعّلها true فقط للفيديو مع صوت
+        ResolutionPreset
+            .high, // high is good enough for stories and lighter than max
+        enableAudio: false, // set true only if you capture video with audio
         imageFormatGroup: Platform.isIOS
             ? ImageFormatGroup.bgra8888
             : ImageFormatGroup.yuv420,
@@ -104,9 +105,9 @@ class _CameraScreenState extends State<CameraScreen>
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('تعذّرت تهيئة الكاميرا: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initialize camera: $e')),
+        );
       }
     } finally {
       _initializing = false;
@@ -123,8 +124,11 @@ class _CameraScreenState extends State<CameraScreen>
 
   Future<void> _takePicture() async {
     final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized || ctrl.value.isTakingPicture)
+    if (ctrl == null ||
+        !ctrl.value.isInitialized ||
+        ctrl.value.isTakingPicture) {
       return;
+    }
 
     try {
       final file = await ctrl.takePicture();
@@ -137,7 +141,7 @@ class _CameraScreenState extends State<CameraScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('فشل التقاط الصورة: $e')));
+      ).showSnackBar(SnackBar(content: Text('Failed to capture photo: $e')));
     }
   }
 
@@ -156,11 +160,11 @@ class _CameraScreenState extends State<CameraScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('تعذّر فتح المعرض: $e')));
+      ).showSnackBar(SnackBar(content: Text('Failed to open gallery: $e')));
     }
   }
 
-  // التعامل مع دورة حياة التطبيق (مهم لـ iOS لمنع كراش عند العودة من الخلفية)
+  // Handle app lifecycle (important on iOS to avoid crash when returning from background)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final ctrl = _controller;
@@ -168,12 +172,12 @@ class _CameraScreenState extends State<CameraScreen>
 
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      // أوقف الكاميرا عند الخروج
+      // Stop camera when leaving the screen / app
       ctrl.dispose();
       _controller = null;
       _isInitialized = false;
     } else if (state == AppLifecycleState.resumed) {
-      // أعد التهيئة عند العودة
+      // Re-initialize when coming back
       _initializeCamera(_currentLens);
     }
   }
@@ -196,7 +200,7 @@ class _CameraScreenState extends State<CameraScreen>
               children: [
                 Positioned.fill(child: CameraPreview(ctrl)),
 
-                // زر الإغلاق (أعلى يسار)
+                // Close button (top-left)
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 8,
                   left: 16,
@@ -210,7 +214,7 @@ class _CameraScreenState extends State<CameraScreen>
                   ),
                 ),
 
-                // عناصر التحكم السفلية
+                // Bottom controls
                 Positioned(
                   bottom: 30,
                   left: 0,
@@ -218,7 +222,7 @@ class _CameraScreenState extends State<CameraScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      // قلب الكاميرا (يعطّل لو ما عندك إلا واحدة)
+                      // Flip camera (disabled if only one camera)
                       IconButton(
                         icon: const Icon(
                           Icons.flip_camera_ios,
@@ -230,7 +234,7 @@ class _CameraScreenState extends State<CameraScreen>
                             : null,
                       ),
 
-                      // زر التقاط الصورة
+                      // Shutter button
                       GestureDetector(
                         onTap: _takePicture,
                         child: Container(
@@ -244,7 +248,7 @@ class _CameraScreenState extends State<CameraScreen>
                         ),
                       ),
 
-                      // زر اختيار من المعرض
+                      // Pick from gallery
                       IconButton(
                         icon: const Icon(
                           Icons.photo_library,
