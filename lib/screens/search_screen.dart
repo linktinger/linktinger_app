@@ -212,7 +212,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       user['profileImage'] != null &&
                           user['profileImage'].toString().isNotEmpty
                       ? NetworkImage('$baseUrl/${user['profileImage']}')
-                      : const AssetImage('assets/images/user1.jpg')
+                      : const AssetImage('assets/images/profile.png')
                             as ImageProvider;
 
                   return ListTile(

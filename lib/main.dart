@@ -4,7 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-import 'firebase_options.dart'; // ← مهم: يولّده flutterfire configure
+import 'firebase_options.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -21,23 +21,22 @@ import 'screens/reset_password_screen.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final FlutterLocalNotificationsPlugin flnp = FlutterLocalNotificationsPlugin();
 
-/// ---- FCM background handler (Android/iOS) ----
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // يمكنك إضافة لوجيك هنا إن أردت
+  // من الممكن إضافة منطق إضافي هنا
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1) Firebase init باستخدام خيارات المنصّة
+  // 1) Firebase init
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // 2) ربط background handler
+  // 2) background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // 3) تهيئة flutter_local_notifications حسب المنصّة
+  // 3) flutter_local_notifications
   if (Platform.isAndroid) {
     const androidChannel = AndroidNotificationChannel(
       'linktinger_channel',
@@ -58,7 +57,6 @@ Future<void> main() async {
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
   } else if (Platform.isIOS) {
-    // iOS: طلب الإذن + عرض الإشعارات في المقدّمة
     await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
@@ -80,7 +78,7 @@ Future<void> main() async {
     );
   }
 
-  // 4) التعامل مع الحالة: فتح إشعار والتطبيق "مغلق" (terminated)
+  // 4) opened from terminated
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
     _handleMessageNavigation(initialMessage.data);
@@ -88,11 +86,10 @@ Future<void> main() async {
 
   runApp(const LinktingerApp());
 
-  // 5) Listeners بعد تشغيل التطبيق
+  // 5) listeners
   _setupFcmListeners();
 }
 
-/// عند الضغط على إشعار محلي (show) نقرأ payload ونوجّه
 void _onLocalNotificationTap(NotificationResponse response) {
   final payload = response.payload;
   if (payload == null || payload.isEmpty) return;
@@ -100,9 +97,7 @@ void _onLocalNotificationTap(NotificationResponse response) {
   _handleMessageNavigation(data);
 }
 
-/// توحيد التنقّل من أي مصدر (Push مباشر أو Local)
 void _handleMessageNavigation(Map<String, dynamic> data) {
-  // اجلب القيم بأمان
   final cur =
       int.tryParse('${data['currentUserId'] ?? data['currentUserID'] ?? 0}') ??
       0;
@@ -123,14 +118,11 @@ void _handleMessageNavigation(Map<String, dynamic> data) {
   }
 }
 
-/// مستمعو الرسائل (foreground + when opened from background)
 void _setupFcmListeners() {
-  // Foreground: نعرض Local notification (Android) أو iOS سيعرض حسب setForegroundNotificationPresentationOptions
   FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
     final n = message.notification;
     final d = message.data;
 
-    // على Android نحتاج show لنعرض تنبيه داخل التطبيق
     if (n != null && Platform.isAndroid) {
       final payload = Uri.encodeFull(
         'currentUserId=${d['currentUserId'] ?? d['currentUserID'] ?? ''}'
@@ -154,11 +146,8 @@ void _setupFcmListeners() {
         payload: payload,
       );
     }
-
-    // على iOS يكفي setForegroundNotificationPresentationOptions ليظهر Banner/Sound/Badge
   });
 
-  // عندما يفتح المستخدم الإشعار والتطبيق بالخلفية
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
     _handleMessageNavigation(message.data);
   });
@@ -182,22 +171,28 @@ class LinktingerApp extends StatelessWidget {
       onGenerateRoute: (settings) {
         final uri = Uri.parse(settings.name ?? '');
 
+        // تمرير settings في جميع MaterialPageRoute أدناه مهم جدًا ليصل arguments
         if (uri.path == '/reset-password' &&
             uri.queryParameters.containsKey('token')) {
           final token = uri.queryParameters['token']!;
           return MaterialPageRoute(
             builder: (_) => ResetPasswordScreen(token: token),
+            settings: settings, // ✅
           );
         }
 
         final routeBuilder = appRoutes[uri.path];
         if (routeBuilder != null) {
-          return MaterialPageRoute(builder: routeBuilder);
+          return MaterialPageRoute(
+            builder: routeBuilder,
+            settings: settings, // ✅ مهم: هكذا لن تضيع arguments
+          );
         }
 
         return MaterialPageRoute(
           builder: (_) =>
               const Scaffold(body: Center(child: Text('404 - Page Not Found'))),
+          settings: settings, // ✅ (اختياري لكنه متّسق)
         );
       },
     );
@@ -211,12 +206,14 @@ final Map<String, WidgetBuilder> appRoutes = {
   '/login': (context) => const LoginScreen(),
   '/forget': (context) => const ForgetPasswordScreen(),
   '/home': (context) => const MainScreen(),
+
   '/messages': (context) {
     final args =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    final userId = args?['userId'] is int ? args!['userId'] : 0;
+    final userId = (args?['userId'] is int) ? args!['userId'] : 0;
     return MessagesListScreen(userId: userId);
   },
+
   '/chat': (context) {
     final args =
         ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
@@ -227,10 +224,24 @@ final Map<String, WidgetBuilder> appRoutes = {
       targetProfileImage: args?['targetProfileImage'] ?? '',
     );
   },
+
   '/profile': (context) {
-    final args =
-        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    final userId = args?['userId'] ?? 0;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    int userId = 0;
+
+    if (args is Map) {
+      final raw = args['user_id'] ?? args['userId']; // نقبل المفتاحين
+      if (raw is int) {
+        userId = raw;
+      } else if (raw is String) {
+        userId = int.tryParse(raw) ?? 0;
+      }
+    }
+
+    if (userId <= 0) {
+      return const Scaffold(body: Center(child: Text('Invalid user_id')));
+    }
+
     return UserProfileScreen(userId: userId);
   },
 };

@@ -1,17 +1,20 @@
 import java.util.Properties
 import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    id("com.google.gms.google-services")
+    id("org.jetbrains.kotlin.android")            // ✅ المعرّف الحديث
+    id("com.google.gms.google-services")          // ✅ بدون version هنا
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
+
 android {
     namespace = "com.linktinger.app"
     compileSdk = 36
@@ -37,19 +40,27 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
-            storePassword = keystoreProperties["storePassword"] as String
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = (keystoreProperties["storeFile"] as String?)?.let { file(it) }
+                storePassword = keystoreProperties["storePassword"] as String
+            }
         }
     }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now,
-            // so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // ✅ استخدم توقيع release فقط
             signingConfig = signingConfigs.getByName("release")
+            // (اختياري) التفعيل لاحقاً:
+            // isMinifyEnabled = true
+            // proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            // يستخدم توقيع debug الافتراضي.
+            // (اختياري) لو تريد استخدام نفس شهادة release في debug:
+            // signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -62,5 +73,4 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
     implementation("com.google.firebase:firebase-messaging")
-
 }

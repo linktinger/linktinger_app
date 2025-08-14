@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For HapticFeedback (optional)
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/story_model.dart';
@@ -8,6 +11,7 @@ import '../screens/messenger/hat_list_screen.dart';
 import '../screens/profile/user_profile_screen.dart';
 import '../services/home_service.dart';
 import '../services/post_actions_service.dart';
+import '../services/permissions.dart'; // ✨ Added: camera/notifications permissions
 import '../widgets/home/comment_sheet.dart';
 import '../widgets/home/post_card.dart';
 import '../widgets/home/post_skeleton.dart';
@@ -33,13 +37,16 @@ class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   Timer? _refreshTimer;
 
+  // Flag to prevent double-tapping share
+  bool _shareBusy = false;
+
   @override
   void initState() {
     super.initState();
     fetchHomeData();
     startAutoRefresh();
 
-    // استماع للتمرير لتحميل المزيد عند الاقتراب من نهاية القائمة
+    // Load more when close to bottom
     _scrollController.addListener(() {
       if (_scrollController.position.pixels >=
               _scrollController.position.maxScrollExtent - 100 &&
@@ -68,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // جلب البيانات الأساسية (القصص والمنشورات)
+  // Fetch base data (stories & posts)
   Future<void> fetchHomeData() async {
     setState(() {
       isLoading = true;
@@ -77,19 +84,18 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     final data = await HomeService.fetchHomeData();
-
     if (!mounted) return;
 
     if (data['status'] == 'success') {
-      List<dynamic> fetchedStories = data['stories'];
+      final List<dynamic> fetchedStories = data['stories'] ?? [];
 
-      // استخراج قصة المستخدم نفسه
+      // My own story
       final myStory = fetchedStories.firstWhere(
         (story) => story['isMe'] == true,
         orElse: () => null,
       );
 
-      // استخراج قصص المتابعين التي تحتوي على قصص فعليًا (items غير فارغ)
+      // Following stories that actually have items
       final followingStories = fetchedStories.where((story) {
         return story['isMe'] != true && (story['items']?.isNotEmpty ?? false);
       }).toList();
@@ -100,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         stories = displayedStories;
-        posts = data['posts'];
+        posts = data['posts'] ?? [];
         isLoading = false;
       });
     } else {
@@ -111,19 +117,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // تحميل المزيد من المنشورات عند التمرير
+  // Load more on scroll
   Future<void> loadMorePosts() async {
     if (posts.isEmpty) return;
 
-    final lastPostId = int.tryParse(posts.last['postId'].toString()) ?? 0;
+    final lastPostId = int.tryParse('${posts.last['postId'] ?? 0}') ?? 0;
     isLoadingMore = true;
 
     final data = await HomeService.fetchHomeData(lastId: lastPostId);
     isLoadingMore = false;
 
     if (data['status'] == 'success') {
-      final List<dynamic> newPosts = data['posts'];
-
+      final List<dynamic> newPosts = data['posts'] ?? [];
       if (newPosts.isEmpty) {
         hasMore = false;
       } else {
@@ -134,15 +139,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // فتح كاميرا نشر ستوري جديد
-  void _openStoryCamera() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const CameraScreen()),
-    );
+  // Open camera to create a new story (asks for permission first)
+  Future<void> _openStoryCamera() async {
+    final granted = await ensureCamera(context);
+    if (!mounted) return;
+
+    if (granted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const CameraScreen()),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera permission is required to capture a story'),
+        ),
+      );
+    }
   }
 
-  // بناء واجهة التطبيق
+  // UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -178,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // شريط العنوان مع أزرار الكاميرا والدردشة
+  // Header with camera & chat buttons
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -200,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // الانتقال إلى صفحة المراسلة
+  // Navigate to messenger
   Future<void> _goToMessenger() async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('user_id') ?? 0;
@@ -213,7 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // زر دائري بأيقونة
+  // Circular icon button
   Widget _buildCircleButton(IconData icon, [VoidCallback? onTap]) {
     return InkWell(
       onTap: onTap,
@@ -229,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // عرض قسم القصص
+  // Stories row
   Widget _buildStoriesSection() {
     if (stories.isEmpty) return const SizedBox();
 
@@ -261,10 +277,16 @@ class _HomeScreenState extends State<HomeScreen> {
               } else if (hasStories) {
                 final List<StoryModel>
                 parsedStories = rawStories.map<StoryModel>((s) {
+                  DateTime ts;
+                  try {
+                    ts = DateTime.parse('${s['createdAt']}').toLocal();
+                  } catch (_) {
+                    ts = DateTime.now();
+                  }
                   return StoryModel(
                     imageUrl:
                         'https://linktinger.xyz/linktinger-api/${s['storyImage']}',
-                    timestamp: DateTime.parse(s['createdAt']),
+                    timestamp: ts,
                   );
                 }).toList();
 
@@ -286,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // عرض قسم المنشورات
+  // Posts list
   Widget _buildPostsSection() {
     if (posts.isEmpty) {
       return const Padding(
@@ -305,8 +327,9 @@ class _HomeScreenState extends State<HomeScreen> {
       itemCount: posts.length,
       itemBuilder: (context, index) {
         final post = posts[index];
-        final postId = int.tryParse(post['postId']?.toString() ?? '0') ?? 0;
-        final userId = post['user_id'] ?? 0;
+
+        final postId = int.tryParse('${post['postId'] ?? 0}') ?? 0;
+        final userId = int.tryParse('${post['user_id'] ?? 0}') ?? 0;
 
         return PostCard(
           postId: postId,
@@ -320,17 +343,21 @@ class _HomeScreenState extends State<HomeScreen> {
           comments: post['comments'] ?? 0,
           isLiked: post['isLiked'] ?? false,
           onUserTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => UserProfileScreen(userId: userId),
-              ),
-            );
+            if (userId > 0) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => UserProfileScreen(userId: userId),
+                ),
+              );
+            }
           },
           onLike: () async {
             if (postId <= 0) return;
 
             final result = await PostActionsService.toggleLike(postId);
+            if (!mounted) return;
+
             if (result['status'] == 'success') {
               setState(() {
                 final isLiked = post['isLiked'] ?? false;
@@ -357,14 +384,239 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
           },
-          onShare: () {
-            final postUrl = "https://linktinger.xyz/posts/$postId";
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('The link has been copied: $postUrl')),
-            );
+          onShare: () async {
+            if (postId <= 0 || _shareBusy) return;
+
+            _shareBusy = true;
+            try {
+              // Internal share user picker
+              final target = await showModalBottomSheet<_UserPickResult>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const _ShareUserPickerSheet(),
+              );
+
+              if (target == null) return;
+
+              // Prevent sharing to yourself
+              final prefs = await SharedPreferences.getInstance();
+              final myId = prefs.getInt('user_id') ?? 0;
+              if (target.userId == myId) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('you cant share with your self'),
+                  ),
+                );
+                return;
+              }
+
+              final res = await PostActionsService.sharePostToUser(
+                postId: postId,
+                targetUserId: target.userId,
+              );
+
+              if (!mounted) return;
+
+              if (res['status'] == 'success') {
+                HapticFeedback.lightImpact(); // Nice haptic on success
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('share with ${target.username}')),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(res['message'] ?? 'cant share now')),
+                );
+              }
+            } finally {
+              _shareBusy = false;
+            }
           },
         );
       },
+    );
+  }
+}
+
+/* =========================
+ * Share user picker
+ * ========================= */
+
+class _UserPickResult {
+  final int userId;
+  final String username;
+  final String profileImage;
+  const _UserPickResult({
+    required this.userId,
+    required this.username,
+    required this.profileImage,
+  });
+}
+
+class _ShareUserPickerSheet extends StatefulWidget {
+  const _ShareUserPickerSheet();
+
+  @override
+  State<_ShareUserPickerSheet> createState() => _ShareUserPickerSheetState();
+}
+
+class _ShareUserPickerSheetState extends State<_ShareUserPickerSheet> {
+  String _query = '';
+  bool _loading = true;
+  List<Map<String, dynamic>> _people = [];
+
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPeople();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadPeople() async {
+    setState(() => _loading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myId = prefs.getInt('user_id') ?? 0;
+
+      if (myId <= 0) {
+        _people = [];
+        return;
+      }
+
+      final uri = Uri.parse(
+        'https://linktinger.xyz/linktinger-api/get_share_targets.php'
+        '?user_id=$myId&q=${Uri.encodeQueryComponent(_query)}&limit=50',
+      );
+
+      final resp = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (resp.statusCode == 200) {
+        final decoded = jsonDecode(resp.body);
+        if (decoded is Map && decoded['status'] == 'success') {
+          final List list = decoded['people'] ?? [];
+          _people = list.map<Map<String, dynamic>>((p) {
+            return {
+              'user_id': p['user_id'],
+              'username': p['username'] ?? '',
+              'profileImage': p['profileImage'] ?? '',
+            };
+          }).toList();
+        } else {
+          _people = [];
+        }
+      } else {
+        _people = [];
+      }
+    } catch (_) {
+      _people = [];
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _onSearchChanged(String v) {
+    _query = v;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) _loadPeople();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _people.where((p) {
+      if (_query.trim().isEmpty) return true;
+      return (p['username'] ?? '').toString().toLowerCase().contains(
+        _query.toLowerCase(),
+      );
+    }).toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+          top: 12,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'share with ...',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(
+                hintText: 'search',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: _onSearchChanged,
+            ),
+            const SizedBox(height: 12),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final p = filtered[i];
+                    final uid = int.tryParse('${p['user_id'] ?? 0}') ?? 0;
+                    final name = '${p['username'] ?? ''}';
+                    final img = '${p['profileImage'] ?? ''}';
+
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: (img.isNotEmpty)
+                            ? NetworkImage(
+                                'https://linktinger.xyz/linktinger-api/$img',
+                              )
+                            : null,
+                        child: img.isEmpty ? const Icon(Icons.person) : null,
+                      ),
+                      title: Text(name),
+                      onTap: () {
+                        Navigator.pop(
+                          context,
+                          _UserPickResult(
+                            userId: uid,
+                            username: name,
+                            profileImage: img,
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
     );
   }
 }

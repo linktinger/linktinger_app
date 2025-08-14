@@ -6,7 +6,7 @@ import 'package:linktinger_app/widgets/profile/profile_tabs.dart';
 import 'package:linktinger_app/services/profile_service.dart';
 import 'package:linktinger_app/screens/settings/settings_screen.dart';
 import 'package:linktinger_app/screens/profile/digital_card_screen.dart';
-import 'package:linktinger_app/screens/projects/projects_screen.dart'; // ✅ استيراد صفحة المشاريع
+import 'package:linktinger_app/screens/projects/projects_screen.dart';
 
 class MyProfileScreen extends StatefulWidget {
   const MyProfileScreen({super.key});
@@ -33,7 +33,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   List<String> photos = [];
   List<String> videos = [];
 
+  // خرائط لحذف المنشور (url -> postId) آتية مباشرة من ProfileService
+  Map<String, int> allUrlToId = {};
+  Map<String, int> photosUrlToId = {};
+  Map<String, int> videosUrlToId = {};
+
+  // cache-buster مرة واحدة لتفادي إعادة تحميل الصور
+  late final int _cacheBuster;
+
   String formatImageUrl(String path) {
+    if (path.isEmpty) return '';
     if (path.startsWith('http')) return path;
     return 'https://linktinger.xyz/linktinger-api/$path';
   }
@@ -41,31 +50,68 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   @override
   void initState() {
     super.initState();
+    _cacheBuster = DateTime.now().millisecondsSinceEpoch;
     fetchProfile();
   }
 
   Future<void> fetchProfile() async {
-    final result = await ProfileService.fetchProfileData();
-    if (result['status'] == 'success') {
-      final user = result['user'];
+    try {
+      final result = await ProfileService.fetchProfileData();
+      if (!mounted) return;
+
+      if (result['status'] == 'success') {
+        final user = (result['user'] ?? {}) as Map;
+
+        // ProfileService يضع isVerified بالفعل؛ احتياطاً نتعامل مع الحالتين
+        final dynamic verifiedRaw = user['isVerified'] ?? user['verified'];
+        final bool verified =
+            (verifiedRaw == true ||
+            verifiedRaw == 1 ||
+            verifiedRaw == '1' ||
+            (verifiedRaw is String && verifiedRaw.toLowerCase() == 'true'));
+
+        // ⚠️ خُذ القوائم والخرائط كما أرجعها ProfileService دون أي تطبيع إضافي
+        final posts = (result['posts'] ?? {}) as Map;
+
+        setState(() {
+          username = '${user['username'] ?? ''}';
+          screenName = '${user['screenName'] ?? ''}';
+          bio = '${user['bio'] ?? ''}';
+          specialty = '${user['specialty'] ?? ''}';
+          profileImage = formatImageUrl('${user['profileImage'] ?? ''}');
+          coverImage = formatImageUrl('${user['profileCover'] ?? ''}');
+          followers = int.tryParse('${result['followers'] ?? 0}') ?? 0;
+          following = int.tryParse('${result['following'] ?? 0}') ?? 0;
+          isVerified = verified;
+
+          // هذه القوائم مُطبّعة مسبقًا في ProfileService.normalizeUrlLoose
+          all = List<String>.from(posts['all'] ?? const <String>[]);
+          photos = List<String>.from(posts['photos'] ?? const <String>[]);
+          videos = List<String>.from(posts['videos'] ?? const <String>[]);
+
+          // وهذه الخرائط مفاتيحها تتطابق مع القوائم أعلاه
+          allUrlToId = (posts['allMap'] is Map)
+              ? Map<String, int>.from(posts['allMap'])
+              : {};
+          photosUrlToId = (posts['photosMap'] is Map)
+              ? Map<String, int>.from(posts['photosMap'])
+              : {};
+          videosUrlToId = (posts['videosMap'] is Map)
+              ? Map<String, int>.from(posts['videosMap'])
+              : {};
+
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          error = '${result['message']}';
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
-        username = user['username'];
-        screenName = user['screenName'] ?? '';
-        bio = user['bio'] ?? '';
-        specialty = user['specialty'] ?? '';
-        profileImage = formatImageUrl(user['profileImage'] ?? '');
-        coverImage = formatImageUrl(user['profileCover'] ?? '');
-        followers = result['followers'];
-        following = result['following'];
-        isVerified = user['verified'] == 1;
-        all = List<String>.from(result['posts']['all']);
-        photos = List<String>.from(result['posts']['photos']);
-        videos = List<String>.from(result['posts']['videos']);
-        isLoading = false;
-      });
-    } else {
-      setState(() {
-        error = result['message'];
+        error = 'Unexpected error: $e';
         isLoading = false;
       });
     }
@@ -73,7 +119,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   Widget _buildCoverImage() {
     if (coverImage.isNotEmpty) {
-      final imageUrl = '$coverImage?t=${DateTime.now().millisecondsSinceEpoch}';
+      final imageUrl = '$coverImage?t=$_cacheBuster';
       return FadeInImage.assetNetwork(
         placeholder: 'assets/images/logo.png',
         image: imageUrl,
@@ -112,10 +158,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           );
         },
         backgroundColor: const Color(0xFF142B63),
-        tooltip: 'مشاريعي',
+        tooltip: 'my projects',
         child: const Icon(Icons.work_outline, color: Colors.white),
       ),
-
       body: Stack(
         children: [
           SizedBox(
@@ -199,8 +244,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                 children: [
                   ProfileHeader(
                     username: username,
-                    profileImage:
-                        '$profileImage?t=${DateTime.now().millisecondsSinceEpoch}',
+                    profileImage: '$profileImage?t=$_cacheBuster',
                     isVerified: isVerified,
                   ),
                   const SizedBox(height: 12),
@@ -226,6 +270,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                     photos: photos,
                     videos: videos,
                     isMyProfile: true,
+
+                    // الخرائط كما هي من الـ Service (تطابق تام مع العناصر)
+                    allUrlToId: allUrlToId,
+                    photosUrlToId: photosUrlToId,
+                    videosUrlToId: videosUrlToId,
                   ),
                 ],
               ),

@@ -44,7 +44,7 @@ class _DigitalCardScreenState extends State<DigitalCardScreen> {
 
   ImageProvider getProfileImage() {
     if (profileImage.isEmpty) {
-      return const AssetImage('assets/images/default_profile.png');
+      return const AssetImage('assets/images/profile.png');
     }
     return NetworkImage('$baseUrl$profileImage');
   }

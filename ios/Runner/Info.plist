@@ -24,42 +24,44 @@
   <string>$(FLUTTER_BUILD_NUMBER)</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+
+  <!-- Flutter uses only the launch storyboard -->
   <key>UILaunchStoryboardName</key>
   <string>LaunchScreen</string>
-  <key>UIMainStoryboardFile</key>
-  <string>Main</string>
+
+  <!-- Supported orientations (iPhone) -->
   <key>UISupportedInterfaceOrientations</key>
   <array>
     <string>UIInterfaceOrientationPortrait</string>
     <string>UIInterfaceOrientationLandscapeLeft</string>
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
-  <key>UISupportedInterfaceOrientations~ipad</key>
+
+  <!-- iPhone only -->
+  <key>UIDeviceFamily</key>
   <array>
-    <string>UIInterfaceOrientationPortrait</string>
-    <string>UIInterfaceOrientationPortraitUpsideDown</string>
-    <string>UIInterfaceOrientationLandscapeLeft</string>
-    <string>UIInterfaceOrientationLandscapeRight</string>
+    <integer>1</integer>
   </array>
+
   <key>CADisableMinimumFrameDurationOnPhone</key>
   <true/>
   <key>UIApplicationSupportsIndirectInputEvents</key>
   <true/>
 
-  <!-- ↓↓↓ المضاف ↓↓↓ -->
+  <!-- Privacy descriptions -->
   <key>NSCameraUsageDescription</key>
-  <string>نحتاج الوصول للكاميرا لالتقاط الستوري.</string>
+  <string>We use the camera to capture photos inside the app.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>نحتاج الميكروفون لتسجيل الصوت مع الفيديو.</string>
+  <string>We use the microphone to record audio with videos and voice messages.</string>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>نحتاج الوصول للصور لاختيار وسائط للستوري.</string>
+  <string>We need access to your photo library to select media.</string>
   <key>NSPhotoLibraryAddUsageDescription</key>
-  <string>نحتاج إذن الحفظ لحفظ الوسائط الملتقطة.</string>
+  <string>We need permission to save photos and videos you capture.</string>
 
+  <!-- Background mode for remote notifications -->
   <key>UIBackgroundModes</key>
   <array>
     <string>remote-notification</string>
   </array>
-  <!-- ↑↑↑ المضاف ↑↑↑ -->
 </dict>
 </plist>

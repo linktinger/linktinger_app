@@ -66,7 +66,7 @@ class _VisitorCardsCarouselScreenState
   Widget buildFrontCard(Map<String, dynamic> card) {
     ImageProvider profileImage;
     if (card['profileImage'] == null || card['profileImage'].isEmpty) {
-      profileImage = const AssetImage('assets/images/default_profile.png');
+      profileImage = const AssetImage('assets/images/profile.png');
     } else {
       profileImage = NetworkImage('${widget.baseUrl}/${card['profileImage']}');
     }
@@ -75,7 +75,7 @@ class _VisitorCardsCarouselScreenState
 
     return buildCardContainer(
       child: SizedBox(
-        height: 500, 
+        height: 500,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
