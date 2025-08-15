@@ -2,6 +2,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+/// PostCard
+/// - أخفاء زر المشاركة تلقائيًا عندما onShare == null
+/// - حماية إضافية: _IconOnly لا يرسم شيئًا إن كانت onTap == null
 class PostCard extends StatefulWidget {
   final int postId;
   final int userId;
@@ -16,7 +19,7 @@ class PostCard extends StatefulWidget {
 
   final VoidCallback? onLike;
   final VoidCallback? onComment;
-  final VoidCallback? onShare;
+  final VoidCallback? onShare; // مرّر null لإخفاء زر المشاركة
   final VoidCallback? onUserTap;
   final VoidCallback? onImageTap; // (اختياري) إن أردت فتح شاشة معاينة
 
@@ -165,7 +168,8 @@ class _PostCardState extends State<PostCard> with TickerProviderStateMixin {
               comments: widget.comments,
               onLike: widget.onLike,
               onComment: widget.onComment,
-              onShare: widget.onShare,
+              onShare:
+                  widget.onShare, // ← تمرير null سيخفي زر المشاركة تلقائيًا
               likePulse: _likePulseCtrl,
             ),
           ),
@@ -361,7 +365,10 @@ class _OverlayActions extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        _IconOnly(icon: Icons.share, onTap: onShare, tooltip: 'Share'),
+
+        // ✅ أظهر زر المشاركة فقط إذا كانت onShare موجودة
+        if (onShare != null)
+          _IconOnly(icon: Icons.share, onTap: onShare, tooltip: 'Share'),
       ],
     );
   }
@@ -416,6 +423,9 @@ class _IconOnly extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ لا ترسم شيئًا إن لم تكن قابلة للنقر
+    if (onTap == null) return const SizedBox.shrink();
+
     return Tooltip(
       message: tooltip ?? '',
       child: InkWell(

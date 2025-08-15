@@ -73,7 +73,6 @@ Future<bool> ensurePhotos(BuildContext context) async {
   return false;
 }
 
-/// Dialog عام لفتح الإعدادات عند الرفض الدائم
 Future<void> _openSettingsDialog(BuildContext context, String title) async {
   return showDialog<void>(
     context: context,

@@ -41,30 +41,24 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _socket.connect();
-    _sendSeenSignal();
 
-    // Fetch initial messages from API (may include shared_post)
+    _sendSeenSignal(); // إشعار عند الفتح
+
+    // تحميل الرسائل القديمة مع تطبيعها
     MessageService.fetchMessages(
-          senderId: widget.currentUserId,
-          receiverId: widget.targetUserId,
-          // If you have a production env, pass overrideBaseUrl here
-          // overrideBaseUrl: 'https://linktinger.xyz/linktinger-api',
-        )
-        .then((oldMessages) {
-          setState(() => messages.addAll(oldMessages.map(_normalizeMessage)));
-          _scrollToBottom();
-        })
-        .catchError((_) {});
+      senderId: widget.currentUserId,
+      receiverId: widget.targetUserId,
+    ).then((oldMessages) {
+      final normalized = oldMessages.map(_normalizeIncoming).toList();
+      setState(() => messages.addAll(normalized));
+      _scrollToBottom();
+    });
 
-    // Listen to WebSocket messages
-    _socket.listen((raw) {
+    _socket.listen((msg) {
       try {
-        final decodedAny = jsonDecode(raw);
-        if (decodedAny is! Map) return;
-        final decoded = Map<String, dynamic>.from(decodedAny);
-
-        final from = _asInt(decoded['sender_id']);
-        final to = _asInt(decoded['receiver_id']);
+        final decoded = jsonDecode(msg);
+        final from = decoded['sender_id'];
+        final to = decoded['receiver_id'];
         final type = (decoded['type'] ?? 'text').toString();
 
         final isForThisChat =
@@ -87,18 +81,14 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
 
-        // Normalize the incoming message before adding
-        final normalized = _normalizeMessage(decoded);
+        // ✅ طبّع الرسالة قبل إضافتها
+        final normalized = _normalizeIncoming(decoded);
         setState(() => messages.add(normalized));
         _scrollToBottom();
 
-        // Toast preview for incoming messages
+        // توست معاينة نظيف للطرف المستقبل فقط
         if (from == widget.targetUserId && to == widget.currentUserId) {
-          final preview = _buildPreviewText(
-            lastType: normalized['type'],
-            lastMessage: normalized['message'],
-            sharedPostOwner: normalized['shared_post_owner'],
-          );
+          final preview = _previewForType(type, normalized['message']);
           Fluttertoast.showToast(
             msg: "${widget.targetUsername}: $preview",
             toastLength: Toast.LENGTH_SHORT,
@@ -107,125 +97,70 @@ class _ChatScreenState extends State<ChatScreen> {
             textColor: Colors.white,
             fontSize: 14,
           );
-          _sendSeenSignal();
+          _sendSeenSignal(); // إشعار عند استلام رسالة
         }
-      } catch (_) {
-        // Ignore transient JSON parsing errors
+      } catch (e) {
+        // تجاهل أي JSON غريب بدون إسقاط الواجهة
+        // debugPrint("❗ WebSocket decode error: $e");
       }
     });
   }
 
-  /// Normalize message shape and guard against nulls.
-  /// Supports `shared_post` whether provided at root or inside `message` as JSON.
-  Map<String, dynamic> _normalizeMessage(Map<String, dynamic> m) {
-    final type = (m['type'] ?? 'text').toString().trim();
+  // يحوّل أي رسالة واردة لشكل موحّد مناسب لـ MessageBubble
+  Map<String, dynamic> _normalizeIncoming(Map<String, dynamic> raw) {
+    final type = (raw['type'] ?? 'text').toString();
 
-    // Keep the raw message before converting to String
-    final rawMsg = m['message'];
-
+    // shared_post قد تأتي كأعمدة مخصّصة، أو message = JSON/Map
     if (type == 'shared_post') {
-      Map<String, dynamic>? inner;
-      // Try to parse inner JSON if message is a JSON string or Map
-      try {
-        if (rawMsg is Map) {
-          inner = Map<String, dynamic>.from(rawMsg);
-        } else if (rawMsg is String && rawMsg.trim().isNotEmpty) {
-          final decoded = jsonDecode(rawMsg);
-          if (decoded is Map) inner = Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        // Ignore failures
+      // لو الحقول المخصصة موجودة:
+      final hasCols =
+          raw.containsKey('shared_post_id') ||
+          raw.containsKey('shared_post_thumb') ||
+          raw.containsKey('shared_post_owner');
+
+      if (hasCols) {
+        final payload = {
+          'post_id': raw['shared_post_id'],
+          'owner_name': raw['shared_post_owner'] ?? '',
+          'post_image': raw['shared_post_thumb'] ?? '',
+        };
+        return {
+          ...raw,
+          // مهم: MessageBubble (فرع shared_post) يقرأ JSON من message
+          'message': jsonEncode(payload),
+          'type': 'shared_post',
+        };
       }
 
-      dynamic pick(List keys) {
-        for (final k in keys) {
-          if (inner != null &&
-              inner[k] != null &&
-              inner[k].toString().isNotEmpty) {
-            return inner[k];
-          }
-          if (m[k] != null && m[k].toString().isNotEmpty) return m[k];
-        }
-        return null;
+      // لو message أصلًا Map أو نص JSON—تأكد أنه String JSON
+      final m = raw['message'];
+      if (m is Map) {
+        return {...raw, 'message': jsonEncode(m), 'type': 'shared_post'};
       }
-
-      m['shared_post_id'] = pick(['shared_post_id', 'post_id', 'postId']);
-      m['shared_post_thumb'] = pick([
-        'shared_post_thumb',
-        'thumb',
-        'postImage',
-        'post_image',
-        'image',
-        'thumbnail',
-      ]);
-      m['shared_post_owner'] = pick([
-        'shared_post_owner',
-        'owner',
-        'username',
-        'user_name',
-        'author',
-      ]);
-
-      // Normalize created_at
-      m['created_at'] =
-          (m['created_at'] ??
-                  m['createdAt'] ??
-                  pick(['created_at', 'createdAt']) ??
-                  '')
-              .toString();
-    } else {
-      // Non-shared_post
-      m['created_at'] = (m['created_at'] ?? m['createdAt'] ?? '').toString();
+      if (m is String) {
+        // لو ليس JSON صالحًا، نحاول على الأقل تمريره كما هو
+        return {...raw, 'message': m, 'type': 'shared_post'};
+      }
     }
 
-    // After extracting from message, convert to String for UI consistency
-    m['message'] = (rawMsg ?? '').toString();
-
-    // Guard seen
-    final seen = m['seen'];
-    if (seen is! int && seen is! String) m['seen'] = 0;
-
-    // Guard ids
-    m['sender_id'] = _asInt(m['sender_id']);
-    m['receiver_id'] = _asInt(m['receiver_id']);
-
-    // Avoid empty bubble if no thumbnail is provided for shared_post
-    if (type == 'shared_post' &&
-        (m['shared_post_thumb'] == null ||
-            m['shared_post_thumb'].toString().trim().isEmpty)) {
-      m['shared_post_thumb'] = ''; // fallback text will be used in UI
-    }
-
-    return m;
+    // للصور/الصوت: لا نعرض الرابط كنص داخل MessageBubble—هو سيتكفّل بالميديا
+    return raw;
   }
 
-  int _asInt(dynamic v) {
-    if (v is int) return v;
-    if (v is String) return int.tryParse(v) ?? 0;
-    return 0;
-  }
-
-  String _buildPreviewText({
-    required String? lastType,
-    required String? lastMessage,
-    String? sharedPostOwner,
-  }) {
-    final type = (lastType ?? '').trim();
+  String _previewForType(String type, String message) {
     switch (type) {
-      case 'shared_post':
-        if (sharedPostOwner != null && sharedPostOwner.trim().isNotEmpty) {
-          return '🔗 Post by $sharedPostOwner';
-        }
-        return '🔗 Shared post';
       case 'image':
-        return '📷 Image';
+        return '📷 صورة';
       case 'audio':
-        return '🎵 Voice message';
-      case 'video':
-        return '🎬 Video';
+        return '🎵 صوت';
+      case 'shared_post':
+        return '🔗 منشور مشترك';
       default:
-        final msg = (lastMessage ?? '').trim();
-        return msg.isEmpty ? '…' : msg;
+        // لو النص رابط طويل—لا تطبعه
+        if (message.startsWith('http://') || message.startsWith('https://')) {
+          return '🔗 رابط';
+        }
+        return message;
     }
   }
 
@@ -262,7 +197,8 @@ class _ChatScreenState extends State<ChatScreen> {
     FocusScope.of(context).unfocus();
     final now = DateTime.now().toIso8601String();
 
-    final newMessage = _normalizeMessage({
+    // ✅ طبّع الرسالة الخارجة أيضًا (خاصة لو image/audio URL)
+    final outgoing = _normalizeIncoming({
       'sender_id': widget.currentUserId,
       'receiver_id': widget.targetUserId,
       'message': content,
@@ -271,13 +207,13 @@ class _ChatScreenState extends State<ChatScreen> {
       'created_at': now,
     });
 
-    setState(() => messages.add(newMessage));
+    setState(() => messages.add(outgoing));
     _scrollToBottom();
 
     _socket.sendMessage(
       senderId: widget.currentUserId,
       receiverId: widget.targetUserId,
-      message: content,
+      message: outgoing['message'],
       type: type,
     );
 
@@ -286,7 +222,6 @@ class _ChatScreenState extends State<ChatScreen> {
       receiverId: widget.targetUserId,
       message: content,
       type: type,
-      // overrideBaseUrl: 'https://linktinger.xyz/linktinger-api',
     );
 
     if (!success && mounted) {
@@ -299,26 +234,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent + 100,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent + 100,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
-  }
-
-  void _openSharedPost(int postId) {
-    // Change this to your navigation system
-    // Navigator.pushNamed(context, '/post', arguments: {'postId': postId});
-    debugPrint('Open shared post: $postId');
-  }
-
-  void _openImage(String url) {
-    // Push a full image screen if available
-    // Navigator.push(context, MaterialPageRoute(builder: (_) => FullImageScreen(url: url)));
-    debugPrint('Open image: $url');
   }
 
   @override
@@ -332,7 +256,7 @@ class _ChatScreenState extends State<ChatScreen> {
               username: widget.targetUsername,
               profileImage: widget.targetProfileImage,
               isOnline: widget.isOnline,
-              subtitle: showTyping ? "typing now..." : null,
+              subtitle: showTyping ? "يكتب الآن..." : null,
             ),
             Expanded(
               child: ListView.builder(
@@ -343,39 +267,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   final msg = messages[index];
                   final isMe = msg['sender_id'] == widget.currentUserId;
 
-                  final type = (msg['type'] ?? 'text').toString();
-
-                  // The text/preview string passed to the bubble
-                  final displayText = (type == 'shared_post')
-                      ? ((msg['shared_post_thumb']
-                                    ?.toString()
-                                    .trim()
-                                    .isNotEmpty ??
-                                false)
-                            ? msg['shared_post_thumb'].toString()
-                            : ' share post 🔗') // Fallback text to avoid empty bubble
-                      : (msg['message'] ?? '').toString();
-
                   return MessageBubble(
-                    text: displayText, // Always String
+                    text: (msg['message'] ?? '').toString(),
                     isMe: isMe,
-                    timestamp: (msg['created_at'] ?? '').toString(),
+                    timestamp: msg['created_at'],
                     isSeen: isMe
                         ? (msg['seen'] == 1 || msg['seen'] == '1')
                         : null,
-                    type: type,
-                    sharedPostId: msg['shared_post_id'] == null
-                        ? null
-                        : _asInt(msg['shared_post_id']),
-                    sharedPostOwner: (msg['shared_post_owner'] ?? '')
-                        .toString(),
-
-                    // Enable opening image/post
-                    onOpenSharedPost: (id) => _openSharedPost(id),
-                    onImageTap: (url) => _openImage(url),
-
-                    // Pass baseUrl to resolve relative URLs in MessageBubble
-                    baseUrl: MessageService.baseUrl,
+                    type: (msg['type'] ?? 'text').toString(),
                   );
                 },
               ),

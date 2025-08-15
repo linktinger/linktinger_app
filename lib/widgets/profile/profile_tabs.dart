@@ -4,15 +4,15 @@ import 'package:linktinger_app/screens/full_image_screen.dart';
 import 'package:linktinger_app/services/profile_service.dart';
 
 class ProfileTabs extends StatefulWidget {
-  /// قوائم الروابط فقط (ستُستخدم للعرض) - يجب أن تكون جاهزة/مطابقة من الـ Service
+  /// Lists of media URLs for display (already normalized by the service)
   final List<String> all;
   final List<String> photos;
   final List<String> videos;
 
-  /// هل الملف الشخصي للمستخدم الحالي؟
+  /// Is this the current user's profile?
   final bool isMyProfile;
 
-  /// خرائط: url -> postId (للاستخدام عند الحذف) - مفاتيحها تطابق القوائم أعلاه حرفياً
+  /// Maps: url -> postId (used for deletion). Keys must match the lists above exactly.
   final Map<String, int> allUrlToId;
   final Map<String, int> photosUrlToId;
   final Map<String, int> videosUrlToId;
@@ -36,7 +36,7 @@ class _ProfileTabsState extends State<ProfileTabs>
     with TickerProviderStateMixin {
   late final TabController _tabController;
 
-  /// نسخ محليّة قابلة للتعديل من القوائم والخرائط (بدون أي تطبيع إضافي)
+  /// Local mutable copies (no extra normalization here)
   late List<String> _all;
   late List<String> _photos;
   late List<String> _videos;
@@ -70,124 +70,70 @@ class _ProfileTabsState extends State<ProfileTabs>
   }
 
   void _hydrateFromWidget() {
-    // نسخ القوائم كما هي (مطابقة لما يأتي من الـ Service)
+    // Copy lists as-is
     _all = List<String>.from(widget.all);
     _photos = List<String>.from(widget.photos);
     _videos = List<String>.from(widget.videos);
 
-    // نسخ الخرائط كما هي
-    _allUrlToId = Map<String, int>.from(widget.allUrlToId);
-    _photosUrlToId = Map<String, int>.from(widget.photosUrlToId);
-    _videosUrlToId = Map<String, int>.from(widget.videosUrlToId);
-
-    // ✅ توسعة الخرائط بإضافة مفاتيح بديلة (absolute/relative/noQuery/stripTrailingSlash)
-    final beforeA = _allUrlToId.length;
-    final beforeP = _photosUrlToId.length;
-    final beforeV = _videosUrlToId.length;
-
-    _allUrlToId = _withVariants(_allUrlToId);
-    _photosUrlToId = _withVariants(_photosUrlToId);
-    _videosUrlToId = _withVariants(_videosUrlToId);
-
-    // ==== DEBUG: ملخص سريع بعد التهيئة ====
-    debugPrint('----[ProfileTabs hydrate]--------------------------------');
-    debugPrint(
-      'ALL items=${_all.length}, map=${_allUrlToId.length} (was $beforeA)',
-    );
-    if (_all.isNotEmpty) {
-      final sample = _all.first;
-      debugPrint('ALL sample URL: $sample');
-      debugPrint(
-        'ALL hasKey? ${_allUrlToId.containsKey(sample)} | postId=${_allUrlToId[sample]}',
-      );
-    }
-    debugPrint(
-      'PHOTOS items=${_photos.length}, map=${_photosUrlToId.length} (was $beforeP)',
-    );
-    if (_photos.isNotEmpty) {
-      final sample = _photos.first;
-      debugPrint('PHOTOS sample URL: $sample');
-      debugPrint(
-        'PHOTOS hasKey? ${_photosUrlToId.containsKey(sample)} | postId=${_photosUrlToId[sample]}',
-      );
-    }
-    debugPrint(
-      'VIDEOS items=${_videos.length}, map=${_videosUrlToId.length} (was $beforeV)',
-    );
-    if (_videos.isNotEmpty) {
-      final sample = _videos.first;
-      debugPrint('VIDEOS sample URL: $sample');
-      debugPrint(
-        'VIDEOS hasKey? ${_videosUrlToId.containsKey(sample)} | postId=${_videosUrlToId[sample]}',
-      );
-    }
-    debugPrint('----------------------------------------------------------');
-
-    // ملاحظة: لو الخرائط لا تزال 0، فالمشكلة ليست هنا، بل في الخدمة/الـ API.
+    // Copy maps and expand with lookup variants
+    _allUrlToId = _withVariants(Map<String, int>.from(widget.allUrlToId));
+    _photosUrlToId = _withVariants(Map<String, int>.from(widget.photosUrlToId));
+    _videosUrlToId = _withVariants(Map<String, int>.from(widget.videosUrlToId));
   }
 
-  /// يبني مجموعة مفاتيح بديلة لكل مفتاح موجود ويضيفها إن لم تكن موجودة
+  /// Expand keys with multiple variants to make matching more robust
   Map<String, int> _withVariants(Map<String, int> m) {
     final out = Map<String, int>.from(m);
-    for (final entry in m.entries) {
-      final key = entry.key;
-      final id = entry.value;
-      for (final v in _lookupVariants(key)) {
-        out.putIfAbsent(v, () => id);
+    for (final e in m.entries) {
+      for (final v in _lookupVariants(e.key)) {
+        out.putIfAbsent(v, () => e.value);
       }
     }
     return out;
   }
 
-  /// يبني متغيرات لمفتاح (url) لمطابقة حالات: مطلق/نسبي/بدون query/بدون سلاش نهائي…
+  /// Build alternative keys (absolute/relative/noQuery/stripTrailingSlash…)
   List<String> _lookupVariants(String url) {
-    final variants = <String>{};
-
-    // الأصل كما هو
-    variants.add(url.trim());
+    final s = <String>{};
+    s.add(url.trim());
 
     final u = Uri.tryParse(url.trim());
     if (u != null) {
-      // بدون query/fragment
+      // remove query/fragment
       final noQ = u.replace(query: null, fragment: null).toString();
-      variants.add(noQ);
+      s.add(noQ);
+      if (noQ.endsWith('/')) s.add(noQ.substring(0, noQ.length - 1));
 
-      // بدون السلاش النهائي
-      if (noQ.endsWith('/')) variants.add(noQ.substring(0, noQ.length - 1));
-
-      // المسار فقط (نسبي)
+      // path only (relative)
       final p = u.path;
       if (p.isNotEmpty) {
-        variants.add(p);
-        if (p.endsWith('/')) variants.add(p.substring(0, p.length - 1));
+        s.add(p);
+        if (p.endsWith('/')) s.add(p.substring(0, p.length - 1));
       }
 
-      // اكتب النسخة المطلقة إن كان المفتاح نسبي
+      // add absolute variant if original was relative
       if (!url.startsWith('http')) {
         final abs = _absoluteFromRelative(url);
-        variants.add(abs);
-        if (abs.endsWith('/')) variants.add(abs.substring(0, abs.length - 1));
-      }
-
-      // اكتب النسخة النسبية إن كان المفتاح مطلق
-      if (url.startsWith('http')) {
+        s.add(abs);
+        if (abs.endsWith('/')) s.add(abs.substring(0, abs.length - 1));
+      } else {
+        // add relative variant if original was absolute
         final rel = _relativeFromAbsolute(url);
         if (rel.isNotEmpty) {
-          variants.add(rel);
-          if (rel.endsWith('/')) variants.add(rel.substring(0, rel.length - 1));
+          s.add(rel);
+          if (rel.endsWith('/')) s.add(rel.substring(0, rel.length - 1));
         }
       }
     } else {
-      // لو Uri فشل، جرّب اعتباره نسبي
+      // Fallback: treat as relative and generate absolute
       final abs = _absoluteFromRelative(url);
-      variants.add(abs);
-      if (abs.endsWith('/')) variants.add(abs.substring(0, abs.length - 1));
+      s.add(abs);
+      if (abs.endsWith('/')) s.add(abs.substring(0, abs.length - 1));
     }
 
-    // تنظيف خفيف من } ومسافات شاردة (احتياط)
-    variants.add(url.trim().replaceAll(RegExp(r'[}\s]+$'), ''));
-
-    return variants.toList();
+    // Cleanup stray braces/spaces at the end, just in case
+    s.add(url.trim().replaceAll(RegExp(r'[}\s]+$'), ''));
+    return s.toList();
   }
 
   String _absoluteFromRelative(String rel) {
@@ -202,7 +148,6 @@ class _ProfileTabsState extends State<ProfileTabs>
       final cut = a.substring(_base.length);
       return cut.startsWith('/') ? cut.substring(1) : cut;
     }
-    // لو دومين مختلف، نرجّع المسار فقط إن أمكن
     final u = Uri.tryParse(a);
     return u?.path.replaceFirst(RegExp(r'^/'), '') ?? '';
   }
@@ -227,33 +172,24 @@ class _ProfileTabsState extends State<ProfileTabs>
   }) async {
     if (index < 0 || index >= list.length) return;
 
-    // استخدم الرابط كما هو دون أي تعديل
     final url = list[index];
-
-    // جرّب مباشرة
     int? postId = urlToId[url];
 
-    // إن لم يوجد، جرّب متغيرات الرابط (ABS/REL/noQuery/stripSlash)
     if (postId == null) {
       for (final v in _lookupVariants(url)) {
-        if (urlToId.containsKey(v)) {
-          postId = urlToId[v];
-          debugPrint('[Match via variant] "$url" -> "$v" -> id=$postId');
+        final id = urlToId[v];
+        if (id != null) {
+          postId = id;
           break;
         }
       }
     }
 
-    // ==== DEBUG قبل الحذف ====
-    debugPrint('[Delete Tap] index=$index');
-    debugPrint('URL="$url"');
-    debugPrint('HasKey? ${urlToId.containsKey(url)} | postId=$postId');
-
     if (postId == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('لا أستطيع تحديد معرّف المنشور لهذا العنصر'),
+          content: Text('Unable to determine post ID for this item'),
         ),
       );
       return;
@@ -262,26 +198,24 @@ class _ProfileTabsState extends State<ProfileTabs>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('تأكيد الحذف'),
-        content: const Text('هل تريد حذف هذا المنشور نهائيًا؟'),
+        title: const Text('Confirm delete'),
+        content: const Text('Do you want to permanently delete this post?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('حذف', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
-
     if (confirm != true) return;
 
     HapticFeedback.selectionClick();
 
-    // حذف تفاؤلي + إمكانية التراجع عند الفشل
     final removed = list.removeAt(index);
     setState(() => _busy = true);
 
@@ -291,7 +225,7 @@ class _ProfileTabsState extends State<ProfileTabs>
     setState(() => _busy = false);
 
     if ((resp['status'] as String?) == 'success') {
-      // احذف كل المتغيرات المحتملة لنفس الرابط لضمان الاتساق
+      // Remove all variants to keep maps consistent
       for (final v in _lookupVariants(url)) {
         urlToId.remove(v);
       }
@@ -301,20 +235,16 @@ class _ProfileTabsState extends State<ProfileTabs>
       setState(() {});
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('تم حذف المنشور')));
+      ).showSnackBar(const SnackBar(content: Text('Post deleted')));
     } else {
-      // تراجع لو فشل الحذف على السيرفر
+      // Roll back optimistic removal
       list.insert(index, removed);
       setState(() {});
-
       final rawMsg = resp['message'];
       final msg = (rawMsg is String && rawMsg.trim().isNotEmpty)
           ? rawMsg
-          : 'فشل حذف المنشور';
+          : 'Failed to delete the post';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-
-      // ==== DEBUG عند الفشل ====
-      debugPrint('[Delete Failed] id=$postId | message=$msg | resp=$resp');
     }
   }
 
@@ -324,12 +254,11 @@ class _ProfileTabsState extends State<ProfileTabs>
     required VoidCallback onOpen,
   }) {
     final isVid = _isVideo(url);
-
     return Stack(
       children: [
         GestureDetector(
           onTap: isVid ? null : onOpen,
-          onLongPress: onDelete, // دعم الضغط المطوّل للحذف
+          onLongPress: onDelete,
           child: Hero(
             tag: url,
             child: ClipRRect(
@@ -348,7 +277,6 @@ class _ProfileTabsState extends State<ProfileTabs>
                   : Image.network(
                       url,
                       fit: BoxFit.cover,
-                      // مُحمّل بسيط
                       loadingBuilder: (ctx, child, progress) {
                         if (progress == null) return child;
                         return Container(
@@ -358,7 +286,6 @@ class _ProfileTabsState extends State<ProfileTabs>
                           ),
                         );
                       },
-                      // خطأ تحميل الصورة
                       errorBuilder: (ctx, err, st) => Container(
                         color: Colors.black12,
                         child: const Center(
@@ -388,14 +315,16 @@ class _ProfileTabsState extends State<ProfileTabs>
 
   Widget _buildMediaGrid(List<String> items, Map<String, int> urlToId) {
     if (items.isEmpty) {
-      return const Center(child: Text('لا يوجد محتوى'));
+      return const Center(child: Text('No content'));
     }
+
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
 
     return Stack(
       children: [
         GridView.builder(
-          key: ValueKey(items.length), // إعادة بناء نظيفة عند تغيّر الطول
-          padding: const EdgeInsets.all(8),
+          key: ValueKey(items.length),
+          padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + bottomInset),
           itemCount: items.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
@@ -405,14 +334,6 @@ class _ProfileTabsState extends State<ProfileTabs>
           ),
           itemBuilder: (context, index) {
             final url = items[index];
-
-            // ==== DEBUG خفيف لكل عنصر أول 5 فقط لمنع الضوضاء ====
-            if (index < 5) {
-              debugPrint(
-                '[GridItem#$index] url=$url | hasId=${urlToId.containsKey(url)} | id=${urlToId[url]}',
-              );
-            }
-
             return _mediaTile(
               url: url,
               onDelete: widget.isMyProfile
@@ -437,7 +358,9 @@ class _ProfileTabsState extends State<ProfileTabs>
 
   @override
   Widget build(BuildContext context) {
+    // Important: TabBarView inside Expanded to avoid RenderFlex overflow
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TabBar(
           controller: _tabController,
@@ -450,9 +373,8 @@ class _ProfileTabsState extends State<ProfileTabs>
             Tab(text: 'Videos'),
           ],
         ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 300,
+        const SizedBox(height: 8),
+        Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [

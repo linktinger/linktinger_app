@@ -50,18 +50,18 @@ class SettingsScreen extends StatelessWidget {
                     },
                   ),
 
-                  SettingsListItem(
-                    icon: Icons.notifications_outlined,
-                    title: 'Notifications',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const NotificationsScreen(),
-                        ),
-                      );
-                    },
-                  ),
+                  // SettingsListItem(
+                  //   icon: Icons.notifications_outlined,
+                  //   title: 'Notifications',
+                  //   onTap: () {
+                  //     Navigator.push(
+                  //       context,
+                  //       MaterialPageRoute(
+                  //         builder: (_) => const NotificationsScreen(),
+                  //       ),
+                  //     );
+                  //   },
+                  // ),
                   SettingsListItem(
                     icon: Icons.ads_click,
                     title: 'Ads',

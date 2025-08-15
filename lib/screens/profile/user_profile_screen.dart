@@ -25,7 +25,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   String username = '';
   String screenName = '';
   String bio = '';
-  String specialty = ''; // Added for specialty display
+  String specialty = '';
   String profileImage = '';
   String coverImage = '';
   int followers = 0;
@@ -34,7 +34,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool isPrivate = false;
   bool isFriend = false;
   bool isPendingRequest = false;
-  bool isVerified = false; // Verified flag
+  bool isVerified = false;
 
   List<String> all = [];
   List<String> photos = [];
@@ -61,12 +61,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (!mounted) return;
 
     if (result['status'] == 'success') {
-      final user = result['user'];
+      final user = result['user'] as Map;
       setState(() {
-        username = user['username'];
+        username = user['username'] ?? '';
         screenName = user['screenName'] ?? '';
         bio = user['bio'] ?? '';
-        specialty = user['specialty'] ?? ''; // Load specialty from user data
+        specialty = user['specialty'] ?? '';
         profileImage = user['profileImage'] ?? '';
         coverImage = user['profileCover'] ?? '';
         followers = result['followers'] ?? 0;
@@ -75,12 +75,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         isPrivate = result['isPrivate'] ?? false;
         isFriend = result['isFriend'] ?? false;
         isPendingRequest = result['isPendingRequest'] ?? false;
-        isVerified = user['verified'] == 1;
+        isVerified = (user['verified'] == 1) || (user['isVerified'] == true);
 
         if (!isPrivate || isFriend || myUserId == widget.userId) {
-          all = List<String>.from(result['posts']['all']);
-          photos = List<String>.from(result['posts']['photos']);
-          videos = List<String>.from(result['posts']['videos']);
+          final posts = (result['posts'] ?? {}) as Map;
+          all = List<String>.from(posts['all'] ?? const <String>[]);
+          photos = List<String>.from(posts['photos'] ?? const <String>[]);
+          videos = List<String>.from(posts['videos'] ?? const <String>[]);
         }
 
         isLoading = false;
@@ -136,7 +137,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       Fluttertoast.showToast(msg: "User ID not found.");
       return;
     }
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -212,6 +212,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       );
     }
 
+    // شاشة خاصة بحساب خاص
     if (isPrivate && !isFriend && myUserId != widget.userId) {
       return Scaffold(
         body: Stack(
@@ -221,11 +222,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               initialChildSize: 0.65,
               minChildSize: 0.65,
               maxChildSize: 1.0,
-              builder: (context, scrollController) => Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 20,
-                ),
+              builder: (context, controller) => Container(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                 decoration: BoxDecoration(
                   color: Theme.of(context).scaffoldBackgroundColor,
                   borderRadius: const BorderRadius.vertical(
@@ -233,6 +231,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ),
                 ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.max,
                   children: [
                     ProfileHeader(
                       username: username,
@@ -254,7 +253,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       targetProfileImage: profileImage,
                       showMessageButton: false,
                     ),
-                    const SizedBox(height: 20),
+                    const Spacer(),
                     const Icon(
                       Icons.lock_outline,
                       size: 60,
@@ -265,6 +264,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       'This account is private.',
                       style: TextStyle(fontSize: 18, color: Colors.grey),
                     ),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
@@ -275,6 +275,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       );
     }
 
+    // الحالة العامة
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+
     return Scaffold(
       body: Stack(
         children: [
@@ -283,16 +286,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             initialChildSize: 0.65,
             minChildSize: 0.65,
             maxChildSize: 1.0,
-            builder: (context, scrollController) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            builder: (context, controller) => Container(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 16 + bottomInset),
               decoration: BoxDecoration(
                 color: Theme.of(context).scaffoldBackgroundColor,
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(30),
                 ),
               ),
-              child: ListView(
-                controller: scrollController,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   ProfileHeader(
                     username: username,
@@ -329,12 +332,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     targetProfileImage: profileImage,
                     showMessageButton: myUserId != widget.userId,
                   ),
-                  const SizedBox(height: 16),
-                  ProfileTabs(
-                    all: all,
-                    photos: photos,
-                    videos: videos,
-                    isMyProfile: false,
+                  const SizedBox(height: 12),
+
+                  // ✅ هنا المهم: لا نستخدم ListView. نستخدم Expanded والتمرير داخل ProfileTabs فقط.
+                  Expanded(
+                    child: ProfileTabs(
+                      all: all,
+                      photos: photos,
+                      videos: videos,
+                      isMyProfile: false,
+                    ),
                   ),
                 ],
               ),

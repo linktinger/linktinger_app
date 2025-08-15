@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 
-import '../../services/permissions.dart'; // ✅ added: ensureMic / ensurePhotos
 import '../../services/websocket_service.dart';
 
 class MessageInputField extends StatefulWidget {
@@ -65,32 +64,21 @@ class _MessageInputFieldState extends State<MessageInputField> {
       if (path != null) {
         await _uploadAudio(File(path));
       }
-      return;
-    }
+    } else {
+      final hasPermission = await _requestMicrophonePermission();
+      if (!hasPermission) return;
 
-    // ✅ ask for mic permission first
-    final hasPermission = await ensureMic(context);
-    if (!mounted) return;
-    if (!hasPermission) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Microphone permission is required to record'),
-        ),
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
       );
-      return;
+
+      setState(() => _isRecording = true);
     }
-
-    // Start recording
-    final dir = await getTemporaryDirectory();
-    final path =
-        '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
-    await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
-      path: path,
-    );
-
-    setState(() => _isRecording = true);
   }
 
   Future<void> _uploadAudio(File audioFile) async {
@@ -105,51 +93,30 @@ class _MessageInputFieldState extends State<MessageInputField> {
 
     final response = await request.send();
     final body = await response.stream.bytesToString();
-    // ignore: avoid_print
     print('🔊 AUDIO RESPONSE: $body');
 
     if (response.statusCode == 200) {
       try {
         final data = jsonDecode(body);
-        if (data is Map && data['status'] == 'success') {
-          widget.onSend('${data['stored_message']}', type: 'audio');
+        if (data['status'] == 'success') {
+          widget.onSend(data['stored_message'], type: 'audio');
         } else {
-          // ignore: avoid_print
           print('❌ Audio Upload Error: ${data['message']}');
         }
       } catch (e) {
-        // ignore: avoid_print
         print('❌ Audio JSON Decode Error: $e');
       }
     } else {
-      // ignore: avoid_print
       print('❌ Failed to upload audio: ${response.statusCode}');
     }
   }
 
   Future<void> _pickImage() async {
-    // ✅ ask for photos/gallery permission first
-    final ok = await ensurePhotos(context);
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Photos permission is required to send images'),
-        ),
-      );
-      return;
-    }
-
     final picked = await _picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
       final uploadedPath = await _uploadImage(File(picked.path));
-      if (!mounted) return;
       if (uploadedPath != null) {
         widget.onSend(uploadedPath, type: 'image');
-      } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to upload image')));
       }
     }
   }
@@ -166,31 +133,26 @@ class _MessageInputFieldState extends State<MessageInputField> {
 
     final response = await request.send();
     final body = await response.stream.bytesToString();
-    // ignore: avoid_print
     print('🖼️ IMAGE RESPONSE: $body');
 
     if (response.statusCode == 200) {
       try {
         final data = jsonDecode(body);
-        if (data is Map && data['status'] == 'success') {
-          return '${data['stored_message']}';
+        if (data['status'] == 'success') {
+          return data['stored_message'];
         } else {
-          // ignore: avoid_print
           print('❌ Image Upload Error: ${data['message']}');
         }
       } catch (e) {
-        // ignore: avoid_print
         print('❌ Image JSON Decode Error: $e');
       }
     } else {
-      // ignore: avoid_print
       print('❌ Failed to upload image: ${response.statusCode}');
     }
 
     return null;
   }
 
-  // لم نعد بحاجة لهذه الدالة إن كنت تعتمد ensureMic، لكن نُبقيها لو تُستدعى من مكان آخر
   Future<bool> _requestMicrophonePermission() async {
     final status = await Permission.microphone.request();
     return status == PermissionStatus.granted;

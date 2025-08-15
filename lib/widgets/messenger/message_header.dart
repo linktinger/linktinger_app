@@ -4,7 +4,7 @@ class MessageHeader extends StatelessWidget {
   final String username;
   final String? profileImage;
   final bool isOnline;
-  final String? subtitle; 
+  final String? subtitle;
   final VoidCallback? onBack;
   final VoidCallback? onProfileTap;
 
@@ -13,7 +13,7 @@ class MessageHeader extends StatelessWidget {
     required this.username,
     this.profileImage,
     this.isOnline = false,
-    this.subtitle, 
+    this.subtitle,
     this.onBack,
     this.onProfileTap,
   });
@@ -89,10 +89,7 @@ class MessageHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  subtitle ??
-                      (isOnline
-                          ? "Online now"
-                          : "Offline"), 
+                  subtitle ?? (isOnline ? "Online now" : "Offline"),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: subtitle != null
                         ? Colors.blueGrey
@@ -135,24 +132,24 @@ class MessageHeader extends StatelessWidget {
             ),
           ),
 
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'block') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("User has been blocked")),
-                );
-              } else if (value == 'report') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("User has been reported")),
-                );
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'block', child: Text('Block User')),
-              const PopupMenuItem(value: 'report', child: Text('Report')),
-            ],
-          ),
+          //PopupMenuButton<String>(
+          //icon: const Icon(Icons.more_vert),
+          //onSelected: (value) {
+          //if (value == 'block') {
+          //ScaffoldMessenger.of(context).showSnackBar(
+          //const SnackBar(content: Text("User has been blocked")),
+          //);
+          //} else if (value == 'report') {
+          //ScaffoldMessenger.of(context).showSnackBar(
+          // const SnackBar(content: Text("User has been reported")),
+          // );
+          // }
+          //},
+          //itemBuilder: (_) => [
+          //const PopupMenuItem(value: 'block', child: Text('Block User')),
+          // const PopupMenuItem(value: 'report', child: Text('Report')),
+          // ],
+          // ),
         ],
       ),
     );

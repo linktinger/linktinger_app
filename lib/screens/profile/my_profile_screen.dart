@@ -149,27 +149,82 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       );
     }
 
+    const double kCoverHeight = 260;
+
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ProjectsScreen()),
-          );
-        },
-        backgroundColor: const Color(0xFF142B63),
-        tooltip: 'my projects',
-        child: const Icon(Icons.work_outline, color: Colors.white),
-      ),
       body: Stack(
         children: [
-          SizedBox(
-            height: 260,
-            width: double.infinity,
-            child: _buildCoverImage(),
+          // الخلفية + الغلاف (ثابت)
+          Column(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              SizedBox(
+                height: kCoverHeight,
+                width: double.infinity,
+                child: _buildCoverImage(),
+              ),
+
+              // الهيدر الثابت بالكامل تحت الغلاف
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ProfileHeader(
+                      username: username,
+                      profileImage: '$profileImage?t=$_cacheBuster',
+                      isVerified: isVerified,
+                    ),
+                    const SizedBox(height: 12),
+                    ProfileStats(followers: followers, following: following),
+                    const SizedBox(height: 12),
+                    ProfileBio(bio: bio),
+                    if (specialty.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        specialty,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blueAccent,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Divider(color: Theme.of(context).dividerColor, height: 1),
+                  ],
+                ),
+              ),
+
+              // ✅ الجزء القابل للتمرير فقط (التبويبات)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: ProfileTabs(
+                    all: all,
+                    photos: photos,
+                    videos: videos,
+                    isMyProfile: true,
+
+                    // الخرائط كما هي من الـ Service (تطابق تام مع العناصر)
+                    allUrlToId: allUrlToId,
+                    photosUrlToId: photosUrlToId,
+                    videosUrlToId: videosUrlToId,
+                  ),
+                ),
+              ),
+            ],
           ),
 
-          // زر الإعدادات
+          // أزرار أعلى الغلاف (ثابتة فوق كل شيء)
           Positioned(
             top: 40,
             right: 16,
@@ -188,8 +243,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               ),
             ),
           ),
-
-          // زر البطاقة الرقمية
           Positioned(
             top: 40,
             left: 16,
@@ -226,60 +279,24 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             ),
           ),
 
-          // المحتوى السفلي
-          DraggableScrollableSheet(
-            initialChildSize: 0.65,
-            minChildSize: 0.65,
-            maxChildSize: 1,
-            builder: (_, scrollController) => Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(30),
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              child: ListView(
-                controller: scrollController,
-                children: [
-                  ProfileHeader(
-                    username: username,
-                    profileImage: '$profileImage?t=$_cacheBuster',
-                    isVerified: isVerified,
-                  ),
-                  const SizedBox(height: 12),
-                  ProfileStats(followers: followers, following: following),
-                  const SizedBox(height: 12),
-                  ProfileBio(bio: bio),
-                  if (specialty.trim().isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      specialty,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blueAccent,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  ProfileTabs(
-                    all: all,
-                    photos: photos,
-                    videos: videos,
-                    isMyProfile: true,
-
-                    // الخرائط كما هي من الـ Service (تطابق تام مع العناصر)
-                    allUrlToId: allUrlToId,
-                    photosUrlToId: photosUrlToId,
-                    videosUrlToId: videosUrlToId,
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // زر المشاريع ثابت بأسفل يمين
+          // Align(
+          //   alignment: Alignment.bottomRight,
+          //   child: SafeArea(
+          //     minimum: const EdgeInsets.only(bottom: 16, right: 16),
+          //     child: FloatingActionButton(
+          //       onPressed: () {
+          //         Navigator.push(
+          //           context,
+          //           MaterialPageRoute(builder: (_) => const ProjectsScreen()),
+          //         );
+          //       },
+          //       backgroundColor: const Color(0xFF142B63),
+          //       tooltip: 'my projects',
+          //       child: const Icon(Icons.work_outline, color: Colors.white),
+          //     ),
+          //   ),
+          // ),
         ],
       ),
     );

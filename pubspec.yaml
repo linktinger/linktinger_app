@@ -2,7 +2,7 @@ name: linktinger_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.2+3
+version: 1.0.2+4
 
 environment:
   sdk: ^3.8.1
@@ -21,7 +21,7 @@ dependencies:
   path: ^1.9.0
   firebase_core: ^3.15.2
   firebase_messaging: ^15.2.10
-  flutter_local_notifications: ^19.4.0  # ✅ الأحدث والمتوافقة مع FCM
+  flutter_local_notifications: ^19.4.0  
 
   flip_card: ^0.7.0
   timeago: ^3.6.0

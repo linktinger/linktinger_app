@@ -1,200 +1,85 @@
-import 'dart:async'; // ✅ هذا هو المطلوب
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
-/// ملاحظة:
-/// - اجعل baseUrl يشير إلى جذر الـ API دون الشرطة الختامية.
-/// - استخدم overrideBaseUrl في الاستدعاءات لو أردت التغلب على القيمة الافتراضية (للبيئات المختلفة).
 class MessageService {
   static const String baseUrl = 'https://linktinger.xyz/linktinger-api';
-  static const Duration _defaultTimeout = Duration(seconds: 20);
+  static const String fcmUrl = '$baseUrl/send_fcm_v1.php';
 
-  static String get fcmUrl => '$baseUrl/send_fcm_v1.php';
+  // ========= Helpers =========
+  static Uri _api(String path) => Uri.parse('$baseUrl/$path');
 
-  /// يبني رابطًا كاملاً لمسار قد يأتي نسبيًا من الـ API
-  static String _fullUrl(String path, {String? overrideBaseUrl}) {
-    final p = path.trim();
-    if (p.isEmpty) return '';
-    if (p.startsWith('http://') || p.startsWith('https://')) return p;
-
-    final b = (overrideBaseUrl ?? baseUrl).trim();
-    if (b.isEmpty) return p;
-
-    final left = b.endsWith('/') ? b.substring(0, b.length - 1) : b;
-    final right = p.startsWith('/') ? p.substring(1) : p;
-    return '$left/$right';
-  }
-
-  /// توحيد رسالة واحدة من شكل الـ API (يدعم الاختلافات + message كـ JSON لـ shared_post)
-  static Map<String, dynamic> _normalizeApiMessage(
-    Map input, {
-    String? overrideBaseUrl,
-  }) {
-    final msg = Map<String, dynamic>.from(input);
-
-    // النوع
-    final type = (msg['type'] ?? 'text').toString().trim();
-
-    // معرفات
-    int _asInt(dynamic v) {
-      if (v is int) return v;
-      if (v is String) return int.tryParse(v) ?? 0;
-      return 0;
-    }
-
-    final sender = _asInt(msg['sender_id']);
-    final receiver = _asInt(msg['receiver_id']);
-    final seen = _asInt(msg['seen']);
-    final createdAt = (msg['created_at'] ?? msg['createdAt'] ?? '').toString();
-
-    // النص الخام (قد يكون JSON عند shared_post)
-    final rawMessage = msg['message'];
-
-    // حقول خاصة بالمنشور المشترك
-    int? sharedPostId;
-    String? sharedPostThumb;
-    String? sharedPostOwner;
-
-    if (type == 'shared_post') {
-      Map<String, dynamic>? inner;
-      try {
-        if (rawMessage is Map) {
-          inner = Map<String, dynamic>.from(rawMessage);
-        } else if (rawMessage is String && rawMessage.trim().isNotEmpty) {
-          final decoded = jsonDecode(rawMessage);
-          if (decoded is Map) inner = Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        // تجاهل — سيُلتقط من الجذر
-      }
-
-      dynamic pick(List keys) {
-        for (final k in keys) {
-          if (inner != null &&
-              inner[k] != null &&
-              inner[k].toString().isNotEmpty) {
-            return inner[k];
-          }
-          if (msg[k] != null && msg[k].toString().isNotEmpty) return msg[k];
-        }
-        return null;
-      }
-
-      sharedPostId = (() {
-        final v = pick(['shared_post_id', 'post_id', 'postId']);
-        final n = _asInt(v);
-        return n > 0 ? n : null;
-      })();
-
-      final thumb =
-          (pick([
-                    'shared_post_thumb',
-                    'thumb',
-                    'postImage',
-                    'post_image',
-                    'image',
-                    'thumbnail',
-                  ]) ??
-                  '')
-              .toString()
-              .trim();
-      sharedPostThumb = thumb.isEmpty
-          ? null
-          : _fullUrl(thumb, overrideBaseUrl: overrideBaseUrl);
-
-      final owner =
-          (pick([
-                    'shared_post_owner',
-                    'owner',
-                    'username',
-                    'user_name',
-                    'author',
-                  ]) ??
-                  '')
-              .toString()
-              .trim();
-      sharedPostOwner = owner.isEmpty ? null : owner;
-    }
-
-    // media_url إن وجد من السيرفر
-    final mediaUrlRaw = (msg['media_url'] ?? '').toString().trim();
-    final mediaUrl = mediaUrlRaw.isEmpty
-        ? ''
-        : _fullUrl(mediaUrlRaw, overrideBaseUrl: overrideBaseUrl);
-
-    // النص النهائي (دائمًا String)
-    final text = (rawMessage ?? '').toString();
-
-    return {
-      'sender_id': sender,
-      'receiver_id': receiver,
-      'type': type, // text | image | audio | shared_post
-      'message': text,
-      'seen': seen,
-      'created_at': createdAt,
-
-      // لرسائل المشاركة
-      'shared_post_id': sharedPostId,
-      'shared_post_thumb': sharedPostThumb,
-      'shared_post_owner': sharedPostOwner,
-
-      // لرسائل الميديا
-      'media_url': mediaUrl,
-    };
+  static String _fullUrl(String? pathOrUrl) {
+    final v = (pathOrUrl ?? '').trim();
+    if (v.isEmpty) return '';
+    if (v.startsWith('http://') || v.startsWith('https://')) return v;
+    final p = v.startsWith('/') ? v.substring(1) : v;
+    return '$baseUrl/$p';
   }
 
   /// 📥 Fetch all messages between two users
-  /// يتعامل مع الأنواع: text, image, audio, shared_post
+  /// يدعم afterId/limit اختياريًا للتحميل التزايدي
   static Future<List<Map<String, dynamic>>> fetchMessages({
     required int senderId,
     required int receiverId,
-    String? overrideBaseUrl,
+    int? afterId,
+    int limit = 200,
   }) async {
-    final url = Uri.parse('${overrideBaseUrl ?? baseUrl}/get_messages.php');
+    final url = _api('get_messages.php');
 
     try {
-      final response = await http
-          .post(
-            url,
-            headers: const {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode({
-              'sender_id': senderId,
-              'receiver_id': receiverId,
-            }),
-          )
-          .timeout(_defaultTimeout);
+      final body = <String, dynamic>{
+        'sender_id': senderId,
+        'receiver_id': receiverId,
+        if (afterId != null && afterId > 0) 'after_id': afterId,
+        'limit': limit,
+      };
 
-      if (response.statusCode != 200) {
-        print("❌ HTTP Error: ${response.statusCode}");
-        return [];
-      }
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
 
-      final raw = jsonDecode(response.body);
-      if (raw is Map && raw['status'] == 'success' && raw['messages'] is List) {
-        final List list = raw['messages'];
-        return list
-            .whereType<Map>()
-            .map<Map<String, dynamic>>(
-              (m) => _normalizeApiMessage(m, overrideBaseUrl: overrideBaseUrl),
-            )
-            .toList();
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['status'] == 'success' && data['messages'] != null) {
+          final List msgs = data['messages'];
+          return msgs.map<Map<String, dynamic>>((m) {
+            final type = (m['type'] ?? 'text').toString();
+            var message = (m['message'] ?? '').toString();
+
+            // طبع الروابط للوسائط إلى مطلقة
+            if (type == 'image' || type == 'audio') {
+              message = _fullUrl(message);
+            }
+
+            final out = <String, dynamic>{
+              'id': m['id'],
+              'sender_id': m['sender_id'],
+              'receiver_id': m['receiver_id'],
+              'message': message,
+              'type': type,
+              'seen': m['seen'] ?? 0,
+              'created_at': m['created_at'] ?? '',
+            };
+
+            if (type == 'shared_post') {
+              out['shared_post_id'] = m['shared_post_id'];
+              out['shared_post_owner'] = m['shared_post_owner'] ?? '';
+              out['shared_post_thumb'] = _fullUrl(m['shared_post_thumb']);
+            }
+
+            return out;
+          }).toList();
+        } else {
+          print("⚠️ API Error: ${data['message'] ?? 'Unknown error'}");
+        }
       } else {
-        print("⚠️ API Error: ${raw is Map ? raw['message'] : 'Unknown error'}");
+        print("❌ HTTP Error: ${response.statusCode}");
       }
-    } on SocketException {
-      print("❗ Network unreachable");
-    } on FormatException catch (e) {
-      print("❗ JSON Format error: $e");
-    } on HttpException catch (e) {
-      print("❗ HTTP Exception: $e");
-    } on TimeoutException {
-      print("⏳ Request timed out");
     } catch (e) {
       print("❗ Fetch Exception: $e");
     }
@@ -202,66 +87,50 @@ class MessageService {
     return [];
   }
 
-  /// 📨 إرسال رسالة نص/عام (type='text' افتراضيًا)
-  /// يمكن أيضًا تمرير 'image'، 'audio' إذا كان الباك-إند يسمح.
+  /// 📨 Send a text message
   static Future<bool> sendMessage({
     required int senderId,
     required int receiverId,
     required String message,
     String type = 'text',
-    bool sendPush = true,
-    String? overrideBaseUrl,
   }) async {
-    final url = Uri.parse('${overrideBaseUrl ?? baseUrl}/send_message.php');
+    final url = _api('send_message.php');
 
     try {
-      final resp = await http
-          .post(
-            url,
-            headers: const {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode({
-              'sender_id': senderId,
-              'receiver_id': receiverId,
-              'message': message,
-              'type': type, // text | image | audio | shared_post
-            }),
-          )
-          .timeout(_defaultTimeout);
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sender_id': senderId,
+          'receiver_id': receiverId,
+          'message': message,
+          'type': type,
+        }),
+      );
 
-      if (resp.statusCode != 200) {
-        print("❌ HTTP Error: ${resp.statusCode}");
-        return false;
-      }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
 
-      final data = jsonDecode(resp.body);
-      if (data is Map && data['status'] == 'success') {
-        if (sendPush) {
+        if (data['status'] == 'success') {
+          // إشعار FCM اختياري
           await _sendNotification(
-            receiverToken: '${data['receiver_fcm'] ?? ''}',
+            receiverToken: (data['receiver_fcm'] ?? '').toString(),
             title: "💬 Message from ${data['sender_username'] ?? 'User'}",
-            body: type == 'text' ? message : '[${type}]',
+            body: message,
             payload: {
-              'currentUserId': '$receiverId',
-              'targetUserId': '$senderId',
-              'targetUsername': '${data['sender_username'] ?? ''}',
-              'profile_image_url': '${data['sender_image'] ?? ''}',
-              'message_type': type,
+              'sender_id': senderId.toString(),
+              'sender_name': data['sender_username']?.toString() ?? '',
               'message_text': message,
+              'profile_image_url': data['sender_image']?.toString() ?? '',
             },
-            overrideBaseUrl: overrideBaseUrl,
           );
+          return true;
+        } else {
+          print("⚠️ Sending Failed: ${data['message']}");
         }
-        return true;
       } else {
-        print(
-          "⚠️ Sending Failed: ${data is Map ? data['message'] : 'Unknown'}",
-        );
+        print("❌ HTTP Error: ${response.statusCode}");
       }
-    } on TimeoutException {
-      print("⏳ sendMessage timed out");
     } catch (e) {
       print("❗ Message Send Exception: $e");
     }
@@ -269,23 +138,19 @@ class MessageService {
     return false;
   }
 
-  /// 📎 إرسال ميديا (image أو audio)
+  /// 📎 Send a media message (image or audio)
   static Future<bool> sendMediaMessage({
     required int senderId,
     required int receiverId,
     required File file,
     required String type, // 'image' or 'audio'
-    bool sendPush = true,
-    String? overrideBaseUrl,
   }) async {
-    final url = Uri.parse(
-      '${overrideBaseUrl ?? baseUrl}/send_media_message.php',
-    );
+    final url = _api('send_media_message.php');
 
     final request = http.MultipartRequest('POST', url)
-      ..fields['sender_id'] = '$senderId'
-      ..fields['receiver_id'] = '$receiverId'
-      ..fields['type'] = type; // image | audio;
+      ..fields['sender_id'] = senderId.toString()
+      ..fields['receiver_id'] = receiverId.toString()
+      ..fields['type'] = type;
 
     final mediaType = type == 'image' ? 'image/jpeg' : 'audio/mpeg';
     final extension = type == 'image' ? 'jpg' : 'mp3';
@@ -300,38 +165,32 @@ class MessageService {
     request.files.add(mediaFile);
 
     try {
-      final streamed = await request.send().timeout(_defaultTimeout);
+      final streamed = await request.send();
       final response = await http.Response.fromStream(streamed);
 
-      if (response.statusCode != 200) {
-        print("❌ Media HTTP Error: ${response.statusCode}");
-        return false;
-      }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
 
-      final data = jsonDecode(response.body);
-      if (data is Map && data['status'] == 'success') {
-        if (sendPush) {
+        if (data['status'] == 'success') {
+          // إشعار FCM اختياري
           await _sendNotification(
-            receiverToken: '${data['receiver_fcm'] ?? ''}',
+            receiverToken: (data['receiver_fcm'] ?? '').toString(),
             title: "📎 Message from ${data['sender_username'] ?? 'User'}",
             body: type == 'image' ? "📷 Image" : "🎵 Audio message",
             payload: {
-              'currentUserId': '$receiverId',
-              'targetUserId': '$senderId',
-              'targetUsername': '${data['sender_username'] ?? ''}',
-              'profile_image_url': '${data['sender_image'] ?? ''}',
-              'message_type': type,
+              'sender_id': senderId.toString(),
+              'sender_name': data['sender_username']?.toString() ?? '',
               'message_text': '[media]',
+              'profile_image_url': data['sender_image']?.toString() ?? '',
             },
-            overrideBaseUrl: overrideBaseUrl,
           );
+          return true;
+        } else {
+          print("⚠️ Media Error: ${data['message']}");
         }
-        return true;
       } else {
-        print("⚠️ Media Error: ${data is Map ? data['message'] : 'Unknown'}");
+        print("❌ Media HTTP Error: ${response.statusCode}");
       }
-    } on TimeoutException {
-      print("⏳ sendMediaMessage timed out");
     } catch (e) {
       print("❗ Media Upload Exception: $e");
     }
@@ -339,105 +198,75 @@ class MessageService {
     return false;
   }
 
-  /// 🔗 إرسال رسالة مشاركة منشور (post_id فقط)
+  /// 🔗 Send a shared_post message via dedicated backend
+  /// يخزّن الرسالة في أعمدة shared_post_* مع type='shared_post'
   static Future<bool> sendSharedPost({
     required int senderId,
-    required int receiverId,
+    required int receiverId, // يستخدم كـ target_user_id في الباك-إند
     required int postId,
-    bool sendPush = true,
-    String? overrideBaseUrl,
   }) async {
-    final url = Uri.parse('${overrideBaseUrl ?? baseUrl}/send_message.php');
+    final url = _api('share_post_to_user.php');
 
     try {
-      final resp = await http
-          .post(
-            url,
-            headers: const {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode({
-              'sender_id': senderId,
-              'receiver_id': receiverId,
-              'type': 'shared_post',
-              'post_id': postId,
-              // message: يمكن تركه فارغًا
-            }),
-          )
-          .timeout(_defaultTimeout);
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sender_id': senderId,
+          'target_user_id': receiverId,
+          'post_id': postId,
+        }),
+      );
 
-      if (resp.statusCode != 200) {
-        print("❌ HTTP Error: ${resp.statusCode}");
-        return false;
-      }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
 
-      final data = jsonDecode(resp.body);
-      if (data is Map && data['status'] == 'success') {
-        if (sendPush) {
-          await _sendNotification(
-            receiverToken: '${data['receiver_fcm'] ?? ''}',
-            title: "🔗 Post from ${data['sender_username'] ?? 'User'}",
-            body: "تمت مشاركة منشور معك",
-            payload: {
-              'currentUserId': '$receiverId',
-              'targetUserId': '$senderId',
-              'targetUsername': '${data['sender_username'] ?? ''}',
-              'profile_image_url': '${data['sender_image'] ?? ''}',
-              'message_type': 'shared_post',
-              'post_id': '$postId',
-            },
-            overrideBaseUrl: overrideBaseUrl,
-          );
+        if (data['status'] == 'success') {
+          // بإمكانك هنا إرسال FCM إن أردت، أو تركه للباك-إند
+          // مثال بسيط (لو كان عندك توكن المستلم):
+          // await _sendNotification(...);
+          return true;
+        } else {
+          print("⚠️ SharedPost Error: ${data['message']}");
         }
-        return true;
       } else {
-        print(
-          "⚠️ Shared Post Failed: ${data is Map ? data['message'] : 'Unknown'}",
-        );
+        print("❌ SharedPost HTTP Error: ${response.statusCode}");
       }
-    } on TimeoutException {
-      print("⏳ sendSharedPost timed out");
     } catch (e) {
-      print("❗ Shared Post Exception: $e");
+      print("❗ SharedPost Exception: $e");
     }
 
     return false;
   }
 
-  /// 🚀 إرسال إشعار FCM عبر سكربت PHP لديك (اختياري)
+  // ========= FCM helper =========
   static Future<void> _sendNotification({
     required String receiverToken,
     required String title,
     required String body,
     required Map<String, String> payload,
-    String? overrideBaseUrl,
   }) async {
     if (receiverToken.isEmpty) return;
 
-    final url = Uri.parse('${overrideBaseUrl ?? baseUrl}/send_fcm_v1.php');
+    final url = _api('send_fcm_v1.php');
 
     try {
       final requestBody = {
         'token': receiverToken,
         'title': title,
         'body': body,
-        ...payload, // currentUserId, targetUserId, message_type, post_id, ...
+        ...payload,
       };
 
-      final response = await http
-          .post(
-            url,
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode(requestBody),
-          )
-          .timeout(_defaultTimeout);
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      );
 
       if (response.statusCode != 200) {
         print('❌ FCM Failed: ${response.body}');
       }
-    } on TimeoutException {
-      print("⏳ FCM request timed out");
     } catch (e) {
       print("❗ FCM Exception: $e");
     }

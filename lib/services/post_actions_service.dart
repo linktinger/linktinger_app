@@ -1,16 +1,27 @@
 import 'dart:convert';
-import 'dart:async'; // ← مهم لـ TimeoutException
-import 'dart:io'; // ← لـ SocketException, HttpException
+import 'dart:async'; // لـ TimeoutException
+import 'dart:io'; // لـ SocketException, HttpException
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PostActionsService {
   static const String _baseUrl = 'https://linktinger.xyz/linktinger-api';
 
+  // ===================== Helpers =====================
   static Future<int?> _getUserId() async {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getInt('user_id');
     return (id != null && id > 0) ? id : null;
+  }
+
+  static Map<String, dynamic> _safeDecode(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'status': 'error', 'message': 'Invalid response structure'};
+    } catch (_) {
+      return {'status': 'error', 'message': 'Invalid JSON'};
+    }
   }
 
   static Future<void> _sendNotification({
@@ -36,11 +47,11 @@ class PostActionsService {
           )
           .timeout(const Duration(seconds: 12));
     } catch (_) {
-      // تجاهل فشل الإشعار حتى لا يعطّل التجربة الأساسية
+      // نتجاهل فشل الإشعار حتى لا يعطّل التجربة الأساسية
     }
   }
 
-  // 🔄 Toggle Like
+  // ===================== Like =====================
   static Future<Map<String, dynamic>> toggleLike(int postId) async {
     final userId = await _getUserId();
     if (userId == null) {
@@ -95,7 +106,7 @@ class PostActionsService {
     }
   }
 
-  // 📝 Comment
+  // ===================== Comment =====================
   static Future<Map<String, dynamic>> commentPost({
     required int postId,
     required String commentText,
@@ -124,7 +135,6 @@ class PostActionsService {
         return {'status': 'error', 'message': 'HTTP error: ${res.statusCode}'};
       }
 
-      // لا حاجة لفحص النوع هنا—_safeDecode دائمًا يعيد Map<String, dynamic>
       final data = _safeDecode(res.body);
       return data;
     } on TimeoutException {
@@ -134,7 +144,9 @@ class PostActionsService {
     }
   }
 
-  /// 📤 مشاركة بوست داخليًا كرسالة إلى مستخدم معيّن (shared_post)
+  // ===================== Share Post to User (shared_post) =====================
+  /// يرسل مشاركة منشور عبر الباك-إند المخصّص `share_post_to_user.php`
+  /// الذي يملأ أعمدة messages: shared_post_id, shared_post_thumb, shared_post_owner, type='shared_post'
   static Future<Map<String, dynamic>> sharePostToUser({
     required int postId,
     required int targetUserId,
@@ -148,20 +160,16 @@ class PostActionsService {
       return {'status': 'error', 'message': 'Invalid parameters'};
     }
 
-    // استخدم المسار الذي جهّزته في الباك-إند
-    final url = Uri.parse('$_baseUrl/send_message.php');
-    // أو لو سكربتك اسمه send.php في الجذر:
-    // final url = Uri.parse('$_baseUrl/send.php');
+    // ✅ endpoint الصحيح حسب ما اتفقنا
+    final url = Uri.parse('$_baseUrl/share_post_to_user.php');
 
+    // ✅ مفاتيح مطابقة للباك-إند
     final payload = <String, dynamic>{
-      'type': 'shared_post',
       'sender_id': senderId,
-      'receiver_id': targetUserId, // الباك-إند يدعم هذا المفتاح
+      'target_user_id': targetUserId,
       'post_id': postId,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
     };
-    if (note != null && note.trim().isNotEmpty) {
-      payload['note'] = note.trim();
-    }
 
     try {
       final res = await http
@@ -177,7 +185,10 @@ class PostActionsService {
       }
 
       final data = _safeDecode(res.body);
+
+      // نجاح الإدخال في جدول messages بنوع shared_post
       if (data['status'] == 'success') {
+        // إشعار اختياري للطرف الآخر
         await _sendNotification(
           senderId: senderId,
           receiverId: targetUserId,
@@ -186,22 +197,12 @@ class PostActionsService {
           message: 'shared a post with you',
         );
       }
+
       return data;
     } on TimeoutException {
       return {'status': 'error', 'message': 'Request timed out'};
     } catch (e) {
       return {'status': 'error', 'message': 'Connection error: $e'};
-    }
-  }
-
-  /// آمن لفك JSON + يعطي رسالة واضحة عند الفشل
-  static Map<String, dynamic> _safeDecode(String body) {
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return {'status': 'error', 'message': 'Invalid response structure'};
-    } catch (_) {
-      return {'status': 'error', 'message': 'Invalid JSON'};
     }
   }
 }

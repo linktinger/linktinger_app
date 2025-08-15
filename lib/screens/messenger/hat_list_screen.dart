@@ -38,6 +38,70 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
     });
   }
 
+  // ===================== معاينة نظيفة لآخر رسالة =====================
+  String getLastMessagePreview(Map<String, dynamic> convo) {
+    final rawType = (convo['lastType'] ?? convo['last_type'] ?? convo['type'])
+        ?.toString();
+    final msg = (convo['lastMessage'] ?? convo['last_message'] ?? '')
+        .toString();
+
+    // لو النوع موجود من الباك
+    switch (rawType) {
+      case 'image':
+        return '📷 photo';
+      case 'audio':
+        return '🎵  sound';
+      case 'video':
+        return '🎬 video';
+      case 'shared_post':
+        return '🔗 share with';
+      case 'file':
+        return '📎 file';
+      case 'text':
+        // سنعرض النص لاحقًا
+        break;
+    }
+
+    // استدلال النوع لو غير متوفر
+    final lower = msg.toLowerCase();
+    final looksUrl =
+        lower.startsWith('http://') || lower.startsWith('https://');
+
+    if (looksUrl) {
+      if (lower.contains('.jpg') ||
+          lower.contains('.jpeg') ||
+          lower.contains('.png') ||
+          lower.contains('/uploads/')) {
+        return '📷 photo';
+      }
+      if (lower.contains('.mp3') ||
+          lower.contains('.m4a') ||
+          lower.contains('.aac') ||
+          lower.contains('.wav')) {
+        return '🎵 sound';
+      }
+      if (lower.contains('.mp4') ||
+          lower.contains('.mov') ||
+          lower.contains('.mkv')) {
+        return '🎬 video';
+      }
+      return '🔗 link';
+    }
+
+    // نص عادي
+    return msg.isEmpty ? 'lets talke ' : msg;
+  }
+
+  // لضبط مسارات الصور إن رجعت نسبية
+  String normalizeUrl(String? pathOrUrl) {
+    final v = pathOrUrl?.toString() ?? '';
+    if (v.isEmpty) return v;
+    if (v.startsWith('http://') || v.startsWith('https://')) return v;
+    final p = v.startsWith('/') ? v.substring(1) : v;
+    return '$baseUrl/$p';
+  }
+  // ================================================================
+
   void _filterConversations(String query) async {
     if (query.isEmpty) {
       setState(() {
@@ -55,7 +119,6 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
         _filteredConversations = filtered;
       });
 
-      // إذا لم توجد نتائج في المحادثات، ابدأ البحث في المستخدمين
       if (filtered.isEmpty) {
         await _searchUsers(query);
       }
@@ -135,13 +198,13 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
               itemCount: _searchResults.length,
               itemBuilder: (context, index) {
                 final user = _searchResults[index];
-                final imageUrl = user['profileImage'] ?? '';
+                final imageUrl = normalizeUrl(user['profileImage']);
                 final username = user['username'] ?? 'User';
 
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundImage: imageUrl.isNotEmpty
-                        ? NetworkImage('$baseUrl/$imageUrl')
+                        ? NetworkImage(imageUrl)
                         : const AssetImage('assets/images/default_avatar.png')
                               as ImageProvider,
                   ),
@@ -179,9 +242,7 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
             itemBuilder: (context, index) {
               final convo = _filteredConversations[index];
               final unreadCount = (convo['unread'] ?? 0) as int;
-              final lastMessage =
-                  convo['lastMessage'] ?? 'Start the conversation now.';
-              final imageUrl = convo['profileImage'] ?? '';
+              final imageUrl = normalizeUrl(convo['profileImage']);
               final username = convo['username'] ?? 'user';
 
               return ListTile(
@@ -195,8 +256,9 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
                   username,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
+                // ✅ هنا التغيير: استخدام معاينة مخصّصة بدل الرابط الخام
                 subtitle: Text(
-                  lastMessage,
+                  getLastMessagePreview(convo),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

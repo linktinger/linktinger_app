@@ -36,6 +36,7 @@ post_install do |installer|
       defs << 'PERMISSION_CAMERA=1'
       defs << 'PERMISSION_MICROPHONE=1'
       defs << 'PERMISSION_PHOTOS=1'
+      defs << 'PERMISSION_NOTIFICATIONS=1'
 
       # (اختياري) تعطيل غير المستخدم لتخفيف الحجم
       defs << 'PERMISSION_LOCATION=0'
