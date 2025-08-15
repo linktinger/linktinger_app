@@ -23,15 +23,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   static const String baseUrl = 'https://linktinger.xyz/linktinger-api/';
 
   late final PageController _pageController;
-  late final AnimationController _progress; // نعيد استخدامه لكل الستوري
+  late final AnimationController _progress;
 
   int _currentIndex = 0;
-  bool _isClosing = false; // تمنع pop المزدوج
+  bool _isClosing = false; // لمنع pop المزدوج
+  bool _didSchedulePop = false; // لضمان استدعاء pop مرة واحدة فقط
 
-  // مدة كل ستوري (ثابتة هنا؛ عدّلها إن أردت)
-  Duration _storyDuration(int index) => const Duration(seconds: 5);
+  Duration _storyDuration(int _) => const Duration(seconds: 5);
 
-  // حساب cacheWidth لتقليل استهلاك الذاكرة
   int _cacheWidthForContext(BuildContext ctx) {
     final mq = MediaQuery.of(ctx);
     final logicalW = mq.size.width;
@@ -57,7 +56,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     _progress = AnimationController(vsync: this, duration: _storyDuration(0))
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) {
-          _next();
+          _handleNext();
         }
       });
 
@@ -65,9 +64,8 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   }
 
   void _startCurrentStory({bool animatePage = true}) {
-    if (!mounted) return;
+    if (!mounted || _isClosing) return;
 
-    // انتقل لصفحة العنصر الحالي (لو لزم)
     if (animatePage && _pageController.hasClients) {
       _pageController.animateToPage(
         _currentIndex,
@@ -76,62 +74,76 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
       );
     }
 
-    // أعِد تهيئة المؤقّت البصري بدون إنشاء Controller جديد
+    // إعادة استخدام نفس الـcontroller
     _progress.stop();
     _progress.duration = _storyDuration(_currentIndex);
     _progress.value = 0.0;
     _progress.forward();
 
-    setState(() {}); // لتحديث شريط التقدم
+    setState(() {});
   }
 
   void _pause() {
-    if (_progress.isAnimating) _progress.stop();
+    if (!_isClosing && _progress.isAnimating) _progress.stop();
   }
 
   void _resume() {
+    if (_isClosing) return;
     if (!_progress.isAnimating && _progress.value < 1.0) {
       _progress.forward();
     }
   }
 
-  void _next() {
+  void _handleNext() {
     if (!mounted || _isClosing) return;
 
-    if (_currentIndex < widget.stories.length - 1) {
+    final isLast = _currentIndex >= widget.stories.length - 1;
+    if (!isLast) {
       setState(() => _currentIndex++);
       _startCurrentStory();
-    } else {
-      // انتهت آخر ستوري → أغلق الشاشة مرة واحدة فقط
-      _isClosing = true;
-      _progress.stop();
-      Navigator.of(context).maybePop();
+      return;
     }
+
+    // آخر ستوري → أغلق بأمان في frame لاحق لتفادي الفريم الأسود
+    _closeSafely();
   }
 
-  void _prev() {
+  void _handlePrev() {
     if (!mounted || _isClosing) return;
 
     if (_currentIndex > 0) {
       setState(() => _currentIndex--);
       _startCurrentStory();
     } else {
-      // لو على أول ستوري وطلب الرجوع
-      _isClosing = true;
-      _progress.stop();
-      Navigator.of(context).maybePop();
+      _closeSafely();
     }
+  }
+
+  void _closeSafely() {
+    if (_isClosing || _didSchedulePop) return;
+    _isClosing = true;
+
+    // أوقف المؤقّت البصري فورًا
+    _progress.stop();
+
+    // جدولة الـ pop بعد انتهاء هذا الإطار
+    _didSchedulePop = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+    });
+
+    // اختياري: تحديث بسيط ليختفي أي محتوى لحظيًّا
+    setState(() {});
   }
 
   void _onTapUp(TapUpDetails d) {
     final w = MediaQuery.of(context).size.width;
     final dx = d.globalPosition.dx;
-
-    // نقرة يسار = رجوع، يمين/وسط = التالي
     if (dx < w / 3) {
-      _prev();
+      _handlePrev();
     } else {
-      _next();
+      _handleNext();
     }
   }
 
@@ -146,6 +158,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   Widget build(BuildContext context) {
     final cacheW = _cacheWidthForContext(context);
 
+    // لو في حالة إغلاق، لا ترسم شيئًا (يمنع وميض أسود)
+    if (_isClosing) {
+      return const SizedBox.shrink();
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapUp: _onTapUp,
@@ -155,7 +172,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // محتوى القصص (صور فقط)
+            // الصور
             PageView.builder(
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
@@ -220,7 +237,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
             Positioned(
               top: 60,
               left: 16,
-              right: 56, // مساحة زر الإغلاق
+              right: 56,
               child: Row(
                 children: [
                   CircleAvatar(
@@ -256,12 +273,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
               right: 10,
               child: IconButton(
                 icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () {
-                  if (_isClosing) return;
-                  _isClosing = true;
-                  _progress.stop();
-                  Navigator.of(context).maybePop();
-                },
+                onPressed: _closeSafely,
               ),
             ),
           ],
@@ -270,7 +282,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     );
   }
 
-  // عنصر شريط التقدم
   Widget _barSegment(double factor) {
     return Expanded(
       child: Container(

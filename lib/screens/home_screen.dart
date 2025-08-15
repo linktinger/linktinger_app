@@ -80,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _startAutoRefresh();
+      if (!_pushingStory) _startAutoRefresh();
     } else {
       _refreshTimer?.cancel();
     }
@@ -129,11 +129,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }).toList();
   }
 
-  // تحديث دوري ذكي: لا يحدث أثناء السحب/الخلفية
+  // تحديث دوري ذكي: لا يحدث أثناء السحب/الخلفية/عرض الستوري
   void _startAutoRefresh() {
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
+
+      // ❗ لا تحدّث أثناء عرض الستوري لتجنّب أي وميض أو فريم أسود
+      if (_pushingStory) return;
+
       // لا تحدّث أثناء سحب المستخدم (يمنع ومضات الصور)
       if (_scrollController.hasClients &&
           _scrollController.position.userScrollDirection !=
@@ -246,17 +250,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) async {
     if (_pushingStory) return;
     _pushingStory = true;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => StoryViewerScreen(
-          username: username,
-          userImage: userImage,
-          stories: items,
+
+    // أوقف التحديث الدوري أثناء عرض الستوري
+    _refreshTimer?.cancel();
+
+    try {
+      await Navigator.of(context).push(
+        PageRouteBuilder(
+          opaque: false, // ← مسار شفاف
+          barrierColor: Colors.black, // خلفية سوداء شفافة
+          transitionDuration: const Duration(milliseconds: 150),
+          reverseTransitionDuration: const Duration(milliseconds: 150),
+          pageBuilder: (_, __, ___) => StoryViewerScreen(
+            username: username,
+            userImage: userImage,
+            stories: items,
+          ),
         ),
-      ),
-    );
-    _pushingStory = false;
+      );
+    } finally {
+      _pushingStory = false;
+      if (mounted) _startAutoRefresh(); // استأنف التحديث الدوري بعد الرجوع
+    }
   }
 
   /* =========================
