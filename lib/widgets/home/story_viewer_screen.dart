@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/story_model.dart';
@@ -8,7 +7,6 @@ class StoryViewerScreen extends StatefulWidget {
   final String userImage;
   final List<StoryModel> stories;
 
-  /// صور فقط – لا يوجد حذف ولا لايك
   const StoryViewerScreen({
     super.key,
     required this.username,
@@ -25,16 +23,13 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   static const String baseUrl = 'https://linktinger.xyz/linktinger-api/';
 
   late final PageController _pageController;
-  late AnimationController _progress; // يتحكم في شريط التقدم للعنصر الحالي
-  Timer? _timer;
+  late final AnimationController _progress; // نعيد استخدامه لكل الستوري
 
   int _currentIndex = 0;
-  bool _disposed = false;
+  bool _isClosing = false; // تمنع pop المزدوج
 
-  // لإيقاف/استئناف المؤقّت بدقة
-  Duration _storyDuration(int index) {
-    return const Duration(seconds: 5);
-  }
+  // مدة كل ستوري (ثابتة هنا؛ عدّلها إن أردت)
+  Duration _storyDuration(int index) => const Duration(seconds: 5);
 
   // حساب cacheWidth لتقليل استهلاك الذاكرة
   int _cacheWidthForContext(BuildContext ctx) {
@@ -56,17 +51,23 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
   @override
   void initState() {
     super.initState();
+
     _pageController = PageController();
 
-    _progress = AnimationController(vsync: this, duration: _storyDuration(0));
+    _progress = AnimationController(vsync: this, duration: _storyDuration(0))
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _next();
+        }
+      });
 
-    // ابدأ أول ستوري
     _startCurrentStory(animatePage: false);
   }
 
   void _startCurrentStory({bool animatePage = true}) {
-    _timer?.cancel();
+    if (!mounted) return;
 
+    // انتقل لصفحة العنصر الحالي (لو لزم)
     if (animatePage && _pageController.hasClients) {
       _pageController.animateToPage(
         _currentIndex,
@@ -75,64 +76,50 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
       );
     }
 
-    // أعد ضبط الـ progress لهذا العنصر وابدأه
-    _progress.dispose();
-    _progress =
-        AnimationController(
-          vsync: this,
-          duration: _storyDuration(_currentIndex),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed) {
-            _next();
-          }
-        });
-
+    // أعِد تهيئة المؤقّت البصري بدون إنشاء Controller جديد
+    _progress.stop();
+    _progress.duration = _storyDuration(_currentIndex);
+    _progress.value = 0.0;
     _progress.forward();
 
-    // مؤقّت نهاية الستوري (مرآة للـ progress)
-    _timer = Timer(_storyDuration(_currentIndex), _next);
-    setState(() {});
+    setState(() {}); // لتحديث شريط التقدم
   }
 
   void _pause() {
-    _timer?.cancel();
     if (_progress.isAnimating) _progress.stop();
   }
 
   void _resume() {
-    // احسب المتبقي بشكل تقريبي من progress.value
-    final total = _storyDuration(_currentIndex);
-    final played = total * _progress.value;
-    final remaining = total - played;
-
-    if (remaining <= Duration.zero) {
-      _next();
-      return;
+    if (!_progress.isAnimating && _progress.value < 1.0) {
+      _progress.forward();
     }
-
-    _timer?.cancel();
-    _timer = Timer(remaining, _next);
-    if (!_progress.isAnimating) _progress.forward();
   }
 
   void _next() {
-    if (!mounted || _disposed) return;
+    if (!mounted || _isClosing) return;
+
     if (_currentIndex < widget.stories.length - 1) {
       setState(() => _currentIndex++);
       _startCurrentStory();
     } else {
-      Navigator.pop(context);
+      // انتهت آخر ستوري → أغلق الشاشة مرة واحدة فقط
+      _isClosing = true;
+      _progress.stop();
+      Navigator.of(context).maybePop();
     }
   }
 
   void _prev() {
-    if (!mounted || _disposed) return;
+    if (!mounted || _isClosing) return;
+
     if (_currentIndex > 0) {
       setState(() => _currentIndex--);
       _startCurrentStory();
     } else {
-      // في أول ستوري – إغلاق (اختياري)
-      Navigator.pop(context);
+      // لو على أول ستوري وطلب الرجوع
+      _isClosing = true;
+      _progress.stop();
+      Navigator.of(context).maybePop();
     }
   }
 
@@ -140,7 +127,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
     final w = MediaQuery.of(context).size.width;
     final dx = d.globalPosition.dx;
 
-    _pause();
+    // نقرة يسار = رجوع، يمين/وسط = التالي
     if (dx < w / 3) {
       _prev();
     } else {
@@ -150,8 +137,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
 
   @override
   void dispose() {
-    _disposed = true;
-    _timer?.cancel();
     _progress.dispose();
     _pageController.dispose();
     super.dispose();
@@ -210,7 +195,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
               },
             ),
 
-            // شريط التقدم (متحرك للعنصر الحالي)
+            // شريط التقدم
             Positioned(
               top: 40,
               left: 12,
@@ -218,16 +203,13 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
               child: Row(
                 children: List.generate(widget.stories.length, (i) {
                   if (i < _currentIndex) {
-                    // مكتمل
                     return _barSegment(1.0);
                   } else if (i == _currentIndex) {
-                    // متحرك بحسب AnimationController
                     return AnimatedBuilder(
                       animation: _progress,
                       builder: (_, __) => _barSegment(_progress.value),
                     );
                   } else {
-                    // لم يبدأ
                     return _barSegment(0.0);
                   }
                 }),
@@ -238,7 +220,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
             Positioned(
               top: 60,
               left: 16,
-              right: 56, // اترك مساحة لزر الإغلاق
+              right: 56, // مساحة زر الإغلاق
               child: Row(
                 children: [
                   CircleAvatar(
@@ -274,7 +256,12 @@ class _StoryViewerScreenState extends State<StoryViewerScreen>
               right: 10,
               child: IconButton(
                 icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.maybePop(context),
+                onPressed: () {
+                  if (_isClosing) return;
+                  _isClosing = true;
+                  _progress.stop();
+                  Navigator.of(context).maybePop();
+                },
               ),
             ),
           ],

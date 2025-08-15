@@ -3,93 +3,127 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
-/// طلب إذن الكاميرا
+/// Ask for camera permission
 Future<bool> ensureCamera(BuildContext context) async {
-  final st = await Permission.camera.request();
-  if (st.isGranted) return true;
+  final status = await Permission.camera.status;
+  if (status.isGranted) return true;
 
-  // iOS بعد الرفض الأول لن يظهر الـ prompt ثانية
-  if (st.isPermanentlyDenied || (Platform.isIOS && st.isDenied)) {
-    await _openSettingsDialog(context, "Camera permission");
+  final req = await Permission.camera.request();
+  if (req.isGranted) return true;
+
+  // On iOS, after the first denial the prompt won’t show again.
+  if (req.isPermanentlyDenied || (Platform.isIOS && req.isDenied)) {
+    await _openSettingsDialog(context, 'Camera');
   }
   return false;
 }
 
-/// طلب إذن التنبيهات (يغطي Android 13+ و iOS) + FCM على iOS
+/// Ask for notifications permission:
+/// - iOS: use FirebaseMessaging.requestPermission() to trigger the iOS system prompt.
+///         This is what makes the "Notifications" section appear in Settings for your app.
+/// - Android 13+: uses runtime POST_NOTIFICATIONS via permission_handler.
 Future<bool> ensureNotifications(BuildContext context) async {
-  final st = await Permission.notification.request();
-  if (st.isGranted) {
-    // على iOS نطلب أيضًا صلاحيات FCM لعرض التنبيهات
-    if (Platform.isIOS) {
-      await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-    }
-    return true;
-  }
-
-  if (st.isPermanentlyDenied || (Platform.isIOS && st.isDenied)) {
-    await _openSettingsDialog(context, "Notification permission");
-  }
-  return false;
-}
-
-/// طلب إذن الميكروفون لتسجيل الصوت
-Future<bool> ensureMic(BuildContext context) async {
-  final st = await Permission.microphone.request();
-  if (st.isGranted) return true;
-
-  if (st.isPermanentlyDenied || (Platform.isIOS && st.isDenied)) {
-    await _openSettingsDialog(context, "Microphone permission");
-  }
-  return false;
-}
-
-/// طلب إذن الوصول للصور/المعرض
-/// iOS: Permission.photos (قد يعود limited أو granted)
-/// Android: Permission.storage (والـ plugin يتكفّل بترجمة READ_MEDIA_IMAGES على 13+)
-Future<bool> ensurePhotos(BuildContext context) async {
-  PermissionStatus st;
-
   if (Platform.isIOS) {
-    st = await Permission.photos.request();
-    if (st.isGranted || st.isLimited) return true;
-
-    if (st.isPermanentlyDenied || st.isDenied) {
-      await _openSettingsDialog(context, "Photos permission");
+    // Check current status via FCM
+    final current = await FirebaseMessaging.instance.getNotificationSettings();
+    if (current.authorizationStatus == AuthorizationStatus.authorized ||
+        current.authorizationStatus == AuthorizationStatus.provisional) {
+      return true;
     }
+
+    // Request iOS authorization (alert/badge/sound)
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false, // set to true if you want "Deliver Quietly"
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+        settings.authorizationStatus == AuthorizationStatus.provisional) {
+      // (Optional) Ensure APNs registration; FCM usually handles this automatically.
+      await FirebaseMessaging.instance.getAPNSToken();
+      return true;
+    }
+
+    // User denied → open App Settings so they can enable it manually
+    await _openSettingsDialog(context, 'Notifications');
+    return false;
   } else {
-    // Android
-    st = await Permission.storage.request();
-    if (st.isGranted) return true;
+    // ANDROID path
+    final status = await Permission.notification.status;
+    if (status.isGranted) return true;
 
-    if (st.isPermanentlyDenied || st.isDenied) {
-      await _openSettingsDialog(context, "Photos/Storage permission");
+    final req = await Permission.notification.request();
+    if (req.isGranted) return true;
+
+    if (req.isPermanentlyDenied || req.isDenied) {
+      await _openSettingsDialog(context, 'Notifications');
     }
+    return false;
+  }
+}
+
+/// Ask for microphone permission (voice messages / recording)
+Future<bool> ensureMic(BuildContext context) async {
+  final status = await Permission.microphone.status;
+  if (status.isGranted) return true;
+
+  final req = await Permission.microphone.request();
+  if (req.isGranted) return true;
+
+  if (req.isPermanentlyDenied || (Platform.isIOS && req.isDenied)) {
+    await _openSettingsDialog(context, 'Microphone');
   }
   return false;
+}
+
+/// Ask for photos/gallery access
+/// iOS: Permission.photos (may be 'limited' or 'granted').
+/// Android: Permission.storage (plugin maps to READ_MEDIA_IMAGES on 13+).
+Future<bool> ensurePhotos(BuildContext context) async {
+  if (Platform.isIOS) {
+    final status = await Permission.photos.status;
+    if (status.isGranted || status.isLimited) return true;
+
+    final req = await Permission.photos.request();
+    if (req.isGranted || req.isLimited) return true;
+
+    if (req.isPermanentlyDenied || req.isDenied || req.isRestricted) {
+      await _openSettingsDialog(context, 'Photos');
+    }
+    return false;
+  } else {
+    final status = await Permission.storage.status;
+    if (status.isGranted) return true;
+
+    final req = await Permission.storage.request();
+    if (req.isGranted) return true;
+
+    if (req.isPermanentlyDenied || req.isDenied) {
+      await _openSettingsDialog(context, 'Photos/Storage');
+    }
+    return false;
+  }
 }
 
 Future<void> _openSettingsDialog(BuildContext context, String title) async {
   return showDialog<void>(
     context: context,
     builder: (_) => AlertDialog(
-      title: const Text("Permission required"),
-      content: Text("Please grant $title from app settings to continue."),
+      title: const Text('Permission required'),
+      content: Text('Please enable $title from App Settings to continue.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancel"),
+          child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
             Navigator.pop(context);
-            openAppSettings();
+            await openAppSettings();
           },
-          child: const Text("Open Settings"),
+          child: const Text('Open Settings'),
         ),
       ],
     ),

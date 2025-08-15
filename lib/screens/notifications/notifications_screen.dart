@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import 'package:linktinger_app/models/notification_model.dart';
@@ -17,13 +18,17 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  final _messaging = FirebaseMessaging.instance;
+  // نهيّئ timeago مرة واحدة فقط
+  static bool _timeagoInitialized = false;
+
+  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   StreamSubscription<RemoteMessage>? _onMessageSub;
   StreamSubscription<RemoteMessage>? _onOpenedAppSub;
 
   List<NotificationModel> _notifications = [];
   bool _isLoading = true;
   bool _cooldown = false;
+  bool _showEnableBanner = false;
 
   @override
   void initState() {
@@ -32,33 +37,67 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _bootstrap() async {
-    // Timeago English messages (usually set once per app)
-    timeago.setLocaleMessages('en', timeago.EnMessages());
-    timeago.setLocaleMessages('en_short', timeago.EnShortMessages());
-
-    // Ask for notification permission (iOS + Android 13+)
-    final granted = await ensureNotifications(context);
-    if (!mounted) return;
-
-    if (!granted) {
-      _showSnackBar(
-        'Notifications are disabled. You can enable them in Settings.',
-      );
+    // تهيئة timeago (إنجليزية هنا — بدّل لـ ar لو تحب)
+    if (!_timeagoInitialized) {
+      timeago.setLocaleMessages('en', timeago.EnMessages());
+      timeago.setLocaleMessages('en_short', timeago.EnShortMessages());
+      _timeagoInitialized = true;
     }
 
-    // iOS-only: configure foreground presentation
+    // ------ منطق الأذونات بدون "إزعاج" متكرر ------
+    bool granted = false;
+
     if (Platform.isIOS) {
-      await _messaging.setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      final current = await _messaging.getNotificationSettings();
+      final status = current.authorizationStatus;
+
+      if (status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional) {
+        granted = true;
+      } else if (status == AuthorizationStatus.notDetermined) {
+        // أول مرة فقط نطلب الإذن (prompt النظام)
+        granted = await ensureNotifications(context);
+      } else {
+        // denied → لا نطلب تلقائيًا، نُظهر Banner للتفعيل
+        granted = false;
+      }
+
+      if (granted) {
+        await _messaging.setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+      }
+    } else {
+      // Android 13+ يحتاج POST_NOTIFICATIONS
+      final st = await Permission.notification.status;
+      if (st.isGranted) {
+        granted = true;
+      } else if (!st.isPermanentlyDenied) {
+        final req = await Permission.notification.request();
+        granted = req.isGranted;
+      } else {
+        granted = false;
+      }
     }
 
+    if (!mounted) return;
+    setState(() => _showEnableBanner = !granted);
+
+    // (اختياري) اطبع الـ Token للتجارب
+    try {
+      final token = await _messaging.getToken();
+      debugPrint('🔑 FCM token: $token');
+    } catch (e) {
+      debugPrint('Failed to get FCM token: $e');
+    }
+
+    // حمّل الإشعارات
     await _fetchNotifications();
 
-    // Foreground messages
-    _onMessageSub = FirebaseMessaging.onMessage.listen((
+    // رسائل أثناء المقدّمة
+    _onMessageSub ??= FirebaseMessaging.onMessage.listen((
       RemoteMessage message,
     ) async {
       final body =
@@ -71,7 +110,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         gravity: ToastGravity.TOP,
       );
 
-      // Throttle refresh calls
       if (!_cooldown) {
         _cooldown = true;
         await _fetchNotifications();
@@ -79,17 +117,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     });
 
-    // Opened from background
-    _onOpenedAppSub = FirebaseMessaging.onMessageOpenedApp.listen(
+    // فُتح من الخلفية
+    _onOpenedAppSub ??= FirebaseMessaging.onMessageOpenedApp.listen(
       _handleNavigateFromMessage,
     );
 
-    // Opened from terminated
+    // فُتح من الإغلاق التام
     final initial = await _messaging.getInitialMessage();
     if (initial != null) _handleNavigateFromMessage(initial);
   }
 
-  // Helpers
+  // --- Helpers ---------------------------------------------------------------
+
   int? _asInt(dynamic v) {
     if (v == null) return null;
     if (v is int) return v;
@@ -114,7 +153,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
 
     debugPrint(
-      '🔔 FCM open -> type=$type, data=${msg.data}, postId=$postId, senderId=$senderId',
+      '🔔 Opened from FCM -> type=$type, data=${msg.data}, postId=$postId, senderId=$senderId',
     );
 
     switch (type) {
@@ -143,7 +182,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         break;
 
       default:
-        // Unknown types: no-op
         break;
     }
   }
@@ -151,10 +189,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _fetchNotifications() async {
     try {
       if (mounted) setState(() => _isLoading = true);
-      final data = await NotificationService.fetchNotifications();
+      final list = await NotificationService.fetchNotifications();
       if (!mounted) return;
       setState(() {
-        _notifications = data;
+        _notifications = list;
         _isLoading = false;
       });
     } catch (e) {
@@ -200,30 +238,75 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.dispose();
   }
 
+  // --- UI --------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    final body = _isLoading
+    final banner = !_showEnableBanner
+        ? const SizedBox.shrink()
+        : MaterialBanner(
+            backgroundColor: Colors.amber.shade50,
+            leading: const Icon(Icons.notifications_off_outlined),
+            content: const Text('Notifications are turned off. Turn them on to stay updated.'),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  // عند ضغط "تفعيل" نطلب الإذن أو نفتح الإعدادات
+                  final ok = await ensureNotifications(context);
+                  if (!mounted) return;
+                  if (ok) {
+                    setState(() => _showEnableBanner = false);
+                    if (Platform.isIOS) {
+                      await _messaging
+                          .setForegroundNotificationPresentationOptions(
+                            alert: true,
+                            badge: true,
+                            sound: true,
+                          );
+                    }
+                  }
+                },
+                child: const Text('Activation'),
+              ),
+            ],
+          );
+
+    final content = _isLoading
         ? const Center(child: CircularProgressIndicator())
         : _notifications.isEmpty
-        ? const Center(child: Text("No notifications yet."))
-        : RefreshIndicator(
-            onRefresh: _fetchNotifications,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              itemCount: _notifications.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final notif = _notifications[index];
-                return NotificationTile(
-                  key: ValueKey(
-                    'notif_${notif.type}_${notif.senderId}_${notif.postId ?? notif.tweetId ?? 'na'}_${notif.createdAt}',
+        ? Column(
+            children: [
+              banner,
+              const Expanded(
+                child: Center(child: Text('There are no notifications.')),
+              ),
+            ],
+          )
+        : Column(
+            children: [
+              banner,
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _fetchNotifications,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    itemCount: _notifications.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final notif = _notifications[index];
+                      return NotificationTile(
+                        key: ValueKey(
+                          'notif_${notif.type}_${notif.senderId}_${notif.postId ?? notif.tweetId ?? 'na'}_${notif.createdAt}',
+                        ),
+                        notification: notif,
+                        onAcceptFollow: _handleAccept,
+                        onRejectFollow: _handleReject,
+                      );
+                    },
                   ),
-                  notification: notif,
-                  onAcceptFollow: _handleAccept,
-                  onRejectFollow: _handleReject,
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           );
 
     return Scaffold(
@@ -237,15 +320,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         foregroundColor: Colors.black,
         elevation: 0.5,
       ),
-      body: body,
+      body: content,
     );
   }
 }
 
 class NotificationTile extends StatefulWidget {
   final NotificationModel notification;
-  final Function(int senderId)? onAcceptFollow;
-  final Function(int senderId)? onRejectFollow;
+  final Future<void> Function(int senderId)? onAcceptFollow;
+  final Future<void> Function(int senderId)? onRejectFollow;
 
   const NotificationTile({
     super.key,
@@ -265,14 +348,15 @@ class _NotificationTileState extends State<NotificationTile> {
   Widget build(BuildContext context) {
     final n = widget.notification;
 
-    final icon = switch (n.type) {
+    final IconData icon = switch (n.type) {
       'like' => Icons.favorite,
       'comment' => Icons.comment,
       'follow' => Icons.person_add,
       _ => Icons.notifications,
     };
 
-    final isPendingFollow = n.type == 'follow' && n.followStatus == 'pending';
+    final bool isPendingFollow =
+        n.type == 'follow' && n.followStatus == 'pending';
 
     DateTime? created;
     try {
@@ -281,11 +365,11 @@ class _NotificationTileState extends State<NotificationTile> {
 
     final timeText = timeago.format(created ?? DateTime.now(), locale: 'en');
 
-    final ImageProvider imageProvider = (n.senderImage.isNotEmpty)
-        ? NetworkImage("https://linktinger.xyz/linktinger-api/${n.senderImage}")
-        : const AssetImage("assets/images/user1.jpg");
+    final ImageProvider<Object> imageProvider = (n.senderImage.isNotEmpty)
+        ? NetworkImage('https://linktinger.xyz/linktinger-api/${n.senderImage}')
+        : const AssetImage('assets/images/user1.jpg');
 
-    void _goToProfile() {
+    void goToProfile() {
       final id = n.senderId;
       if (id is int && id > 0) {
         Navigator.pushNamed(context, '/profile', arguments: {'user_id': id});
@@ -300,11 +384,11 @@ class _NotificationTileState extends State<NotificationTile> {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: GestureDetector(
-        onTap: _goToProfile,
+        onTap: goToProfile,
         child: CircleAvatar(radius: 24, backgroundImage: imageProvider),
       ),
       title: GestureDetector(
-        onTap: _goToProfile,
+        onTap: goToProfile,
         child: Text.rich(
           TextSpan(
             children: [
@@ -342,7 +426,10 @@ class _NotificationTileState extends State<NotificationTile> {
                         ? const SizedBox(
                             height: 16,
                             width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Text(
                             'Accept',
@@ -365,7 +452,10 @@ class _NotificationTileState extends State<NotificationTile> {
                         ? const SizedBox(
                             height: 16,
                             width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Text(
                             'Reject',
@@ -394,7 +484,7 @@ class _NotificationTileState extends State<NotificationTile> {
             }
             break;
           case 'follow':
-            _goToProfile();
+            goToProfile();
             break;
           default:
             break;

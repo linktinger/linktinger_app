@@ -48,13 +48,13 @@
 
   <!-- ↓↓↓ المضاف ↓↓↓ -->
   <key>NSCameraUsageDescription</key>
-  <string>نحتاج الوصول للكاميرا لالتقاط الستوري.</string>
+  <string>We need to access the camera to capture the store.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>نحتاج الميكروفون لتسجيل الصوت مع الفيديو.</string>
+  <string>We need the microphone to record the sound with the video</string>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>نحتاج الوصول للصور لاختيار وسائط للستوري.</string>
+  <string>We need to access the images to choose media for the story.</string>
   <key>NSPhotoLibraryAddUsageDescription</key>
-  <string>نحتاج إذن الحفظ لحفظ الوسائط الملتقطة.</string>
+  <string>We need to save in order to save the captured media.</string>
 
   <key>UIBackgroundModes</key>
   <array>
